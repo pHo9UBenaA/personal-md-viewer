@@ -1,0 +1,47 @@
+{
+	"name": "markdown-viewer",
+	"module": "index.ts",
+	"type": "module",
+	"private": true,
+	"scripts": {
+		"dev": "tsx watch src/index.ts",
+		"start": "tsx src/index.ts",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"test:e2e": "PLAYWRIGHT_TSCONFIG=tsconfig.playwright.json playwright test",
+		"build:mermaid": "node scripts/build-mermaid-assets.mjs",
+		"predev": "pnpm run build:mermaid",
+		"prestart": "pnpm run build:mermaid",
+		"pretest": "pnpm run build:mermaid",
+		"pretest:watch": "pnpm run build:mermaid",
+		"pretest:e2e": "pnpm run build:mermaid",
+		"fix:format": "biome format --write .",
+		"fix:lint": "biome lint --write .",
+		"fix:check": "biome check --write .",
+		"typecheck": "tsgo",
+		"typecheck:tsc": "tsc --noEmit"
+	},
+	"dependencies": {
+		"hono": "catalog:",
+		"mermaid": "catalog:",
+		"rehype-raw": "catalog:",
+		"rehype-sanitize": "catalog:",
+		"rehype-stringify": "catalog:",
+		"remark": "catalog:",
+		"remark-gfm": "catalog:",
+		"remark-parse": "catalog:",
+		"remark-rehype": "catalog:",
+		"unified": "catalog:"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "catalog:",
+		"@playwright/test": "catalog:",
+		"@types/node": "catalog:",
+		"@typescript/native-preview": "catalog:",
+		"tsx": "catalog:",
+		"vitest": "catalog:"
+	},
+	"peerDependencies": {
+		"typescript": "^5"
+	}
+}
