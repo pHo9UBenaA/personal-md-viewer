@@ -4,6 +4,22 @@
 
 ## 起動
 
+開発時は Caddy を導入したうえで `pnpm dev` だけで起動できます。
+
+```sh
+pnpm dev
+# 必要なら、起動時に開くパスも指定できます
+pnpm dev "/Users/you/Documents/notes"
+```
+
+URL は `http://md.localhost:8080` です。sudo 不要で Caddy と閲覧サーバーを起動し、Ctrl+C で両方を終了します。`src` / `public` の変更で閲覧サーバーを再起動するので、ブラウザーを再読み込みしてください。既存の Caddy 設定や常駐サービスは変更しません。
+
+8080 番と内部の 3100 番が必要です。使用中なら `DEV_PORT=8081 DEV_BACKEND_PORT=3101 pnpm dev` のように変更できます。`PORT` / `VIEWER_ORIGIN` は dev では自動設定します。
+
+ポート番号なしの HTTP URL に必要な 80 番待受は、環境によって追加権限が必要です。Caddy が 80 番で待ち受けられる環境では `DEV_PORT=80 pnpm dev` も使えます。スクリプト自体は sudo を実行せず、番号なしの設定に自動変更もしません。
+
+開発時以外に閲覧サーバー単体を起動する場合は以下を使います。
+
 ```sh
 pnpm install --frozen-lockfile
 pnpm start
