@@ -39,13 +39,30 @@ async function readJson(request) {
 export async function createViewerServer({
 	initialPaths = [],
 	recursive = false,
+	publicOrigin,
 } = {}) {
+	let allowedOrigin;
+	if (publicOrigin) {
+		const url = new URL(publicOrigin);
+		if (
+			!["http:", "https:"].includes(url.protocol) ||
+			url.username ||
+			url.password ||
+			url.pathname !== "/" ||
+			url.search ||
+			url.hash
+		)
+			throw new ViewerError(
+				"VIEWER_ORIGIN はパスを含まない http(s) のオリジンにしてください。",
+			);
+		allowedOrigin = url.origin;
+	}
 	const library = createLibrary();
 	const initial = [];
-	for (const path of initialPaths)
-		initial.push(...(await library.openPath(path, recursive)));
-	if (initial.length > 200)
-		throw new ViewerError("起動時に開けるのは 200 件です。");
+	for (const path of initialPaths) {
+		for (const doc of await library.openPath(path, recursive))
+			initial.push(doc);
+	}
 	const token = randomBytes(32).toString("hex");
 	const staticFiles = new Map(
 		await Promise.all(
@@ -90,12 +107,14 @@ export async function createViewerServer({
 			try {
 				const port = server.address().port;
 				const host = request.headers.host;
-				if (host !== `127.0.0.1:${port}` && host !== `localhost:${port}`)
-					throw new ViewerError("Host が許可されていません。", 403);
+				const origin = allowedOrigin ?? `http://${host}`;
 				if (
-					request.headers.origin &&
-					request.headers.origin !== `http://${host}`
+					allowedOrigin
+						? host !== new URL(allowedOrigin).host
+						: host !== `127.0.0.1:${port}` && host !== `localhost:${port}`
 				)
+					throw new ViewerError("Host が許可されていません。", 403);
+				if (request.headers.origin && request.headers.origin !== origin)
 					throw new ViewerError("別のサイトからは操作できません。", 403);
 				if (
 					request.headers["sec-fetch-site"] &&

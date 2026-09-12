@@ -13,8 +13,6 @@ import {
 } from "node:path";
 
 export const MAX_FILE_BYTES = 1024 * 1024;
-export const MAX_TABS = 200;
-const MAX_ENTRIES = 10000;
 const ignored = new Set([".git", "node_modules", ".DS_Store"]);
 export const isMarkdown = (path) => /\.(md|markdown)$/i.test(path);
 export const imageTypes = new Map([
@@ -106,11 +104,6 @@ export function createLibrary() {
 	function register(path, root) {
 		const key = `${root}\0${path}`;
 		if (byPath.has(key)) return documents.get(byPath.get(key));
-		if (documents.size >= 1000)
-			throw new ViewerError(
-				"セッションの上限です。サーバーを再起動してください。",
-				413,
-			);
 		const doc = {
 			id: randomUUID(),
 			path,
@@ -150,7 +143,6 @@ export function createLibrary() {
 				"通常のファイルまたはフォルダーを選択してください。",
 			);
 		const found = [];
-		let visited = 0;
 		async function walk(directory, depth) {
 			if (depth > 32)
 				throw new ViewerError(
@@ -159,11 +151,6 @@ export function createLibrary() {
 				);
 			const entries = await opendir(directory);
 			for await (const entry of entries) {
-				if (++visited > MAX_ENTRIES)
-					throw new ViewerError(
-						"項目が多すぎます。フォルダーの範囲を絞ってください。",
-						413,
-					);
 				if (ignored.has(entry.name) || entry.isSymbolicLink()) continue;
 				const child = resolve(directory, entry.name);
 				// Revalidate before descending, including replaced directory symlinks.
@@ -173,11 +160,6 @@ export function createLibrary() {
 				if (entry.isDirectory() && recursive) await walk(canonical, depth + 1);
 				else if (entry.isFile() && isMarkdown(child)) {
 					found.push(canonical);
-					if (found.length > MAX_TABS)
-						throw new ViewerError(
-							`一度に開けるのは ${MAX_TABS} 件です。範囲を絞ってください。`,
-							413,
-						);
 				}
 			}
 		}
@@ -187,15 +169,6 @@ export function createLibrary() {
 				"Markdown がありません。必要なら「サブフォルダーも含める」を選択してください。",
 			);
 		const unique = [...new Set(found)].sort((a, b) => a.localeCompare(b));
-		if (
-			documents.size +
-				unique.filter((file) => !byPath.has(`${path}\0${file}`)).length >
-			1000
-		)
-			throw new ViewerError(
-				"セッションの上限です。サーバーを再起動してください。",
-				413,
-			);
 		return unique.map((file) => register(file, path));
 	}
 

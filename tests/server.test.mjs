@@ -151,7 +151,7 @@ test("changed files are read again; deletion and replaced symlinks fail safely",
 	await symlink(join(root, "secret.md"), file);
 	assert.equal((await api("read", { id })).status, 403);
 });
-test("size, request and folder limits are explicit", async () => {
+test("byte limits remain while folders can exceed previous document caps", async () => {
 	const big = join(root, "big.md");
 	await writeFile(big, "x".repeat(MAX_FILE_BYTES + 1));
 	assert.equal((await api("open", { path: big })).status, 413);
@@ -167,11 +167,13 @@ test("size, request and folder limits are explicit", async () => {
 	const many = join(root, "many");
 	await mkdir(many);
 	await Promise.all(
-		Array.from({ length: 201 }, (_, index) =>
+		Array.from({ length: 1001 }, (_, index) =>
 			writeFile(join(many, `${index}.md`), "hi"),
 		),
 	);
-	await assert.rejects(createLibrary().openPath(many), /200/);
+	assert.equal((await createLibrary().openPath(many)).length, 1001);
+	const { documents } = await (await api("open", { path: many })).json();
+	assert.equal(documents.length, 1001);
 	await assert.rejects(createLibrary().openPath(join(root, "missing")));
 	const empty = join(root, "empty");
 	await mkdir(empty);
@@ -183,6 +185,84 @@ test("size, request and folder limits are explicit", async () => {
 test("path containment distinguishes siblings and dot-prefixed names", () => {
 	assert.equal(within("/docs", "/docs-escape/a"), false);
 	assert.equal(within("/docs", "/docs/..notes/a"), true);
+});
+test("configured origin supports proxies without trusting forwarded headers", async () => {
+	// Use node:http to send the exact Host header a reverse proxy forwards.
+	const fetch = (url, options = {}) =>
+		new Promise((resolve, reject) => {
+			const req = request(url, options, (res) => {
+				const chunks = [];
+				res.on("data", (chunk) => chunks.push(chunk));
+				res.on("end", () =>
+					resolve(
+						new Response(Buffer.concat(chunks), { status: res.statusCode }),
+					),
+				);
+				res.on("error", reject);
+			});
+			req.on("error", reject);
+			req.end(options.body);
+		});
+	for (const invalid of [
+		"file:///tmp",
+		"http://user:pass@md.localhost",
+		"http://md.localhost/path",
+	]) {
+		await assert.rejects(createViewerServer({ publicOrigin: invalid }));
+	}
+	const proxyServer = await createViewerServer({
+		publicOrigin: "https://md.localhost",
+	});
+	proxyServer.listen(0, "127.0.0.1");
+	await once(proxyServer, "listening");
+	try {
+		const url = `http://127.0.0.1:${proxyServer.address().port}`;
+		const shell = await fetch(url, { headers: { Host: "md.localhost" } });
+		assert.equal(shell.status, 200);
+		const csrf = (await shell.text()).match(
+			/name="viewer-token" content="([^"]+)"/,
+		)[1];
+		const headers = {
+			Host: "md.localhost",
+			Origin: "https://md.localhost",
+			"X-Viewer-Token": csrf,
+			"Content-Type": "application/json",
+		};
+		assert.equal(
+			(
+				await fetch(`${url}/api/open`, {
+					method: "POST",
+					headers,
+					body: JSON.stringify({ path: folder }),
+				})
+			).status,
+			200,
+		);
+		assert.equal((await fetch(url)).status, 403);
+		assert.equal(
+			(
+				await fetch(url, {
+					headers: { Host: "evil.example", "X-Forwarded-Host": "md.localhost" },
+				})
+			).status,
+			403,
+		);
+		assert.equal(
+			(
+				await fetch(url, {
+					headers: {
+						Host: "md.localhost",
+						Origin: "http://md.localhost",
+						"X-Forwarded-Proto": "https",
+					},
+				})
+			).status,
+			403,
+		);
+	} finally {
+		proxyServer.closeAllConnections();
+		await new Promise((resolve) => proxyServer.close(resolve));
+	}
 });
 test(
 	"special files cannot block the reader",

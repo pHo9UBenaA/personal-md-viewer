@@ -9,7 +9,6 @@ let blobUrls = [];
 let paletteIndex = 0;
 let paletteMatches = [];
 let importNumber = 0;
-const MAX_TABS = 200;
 const MAX_BYTES = 1024 * 1024;
 
 let theme = document.documentElement.dataset.theme;
@@ -81,13 +80,6 @@ function keyFor(doc) {
 }
 
 async function addDocuments(documents) {
-	const newKeys = new Set(
-		documents.map(keyFor).filter((key) => !tabs.has(key)),
-	);
-	if (tabs.size + newKeys.size > MAX_TABS)
-		throw new Error(
-			`タブの上限は ${MAX_TABS} 件です。先に不要なタブを閉じてください。`,
-		);
 	for (const doc of documents)
 		tabs.set(keyFor(doc), { ...tabs.get(keyFor(doc)), ...doc });
 	if (documents.length) await activate(keyFor(documents[0]));
@@ -362,8 +354,6 @@ async function activate(key, hash) {
 }
 
 async function importFiles(files) {
-	if (files.length > 10000)
-		throw new Error("選択した項目が多すぎます。範囲を絞ってください。");
 	const selected = files.filter((file) => /\.(md|markdown)$/i.test(file.name));
 	if (!selected.length)
 		throw new Error("選択した項目に Markdown がありません。");
@@ -511,10 +501,8 @@ $("tabs").addEventListener("keydown", (event) => {
 
 async function droppedFiles(items) {
 	const files = [];
-	let visited = 0;
 	async function walk(entry, prefix = "", depth = 0) {
-		if (++visited > 10000 || depth > 32)
-			throw new Error("フォルダーの範囲を絞ってください。");
+		if (depth > 32) throw new Error("フォルダーの範囲を絞ってください。");
 		if (entry.isFile) {
 			const file = await new Promise((resolve, reject) =>
 				entry.file(resolve, reject),

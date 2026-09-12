@@ -4,6 +4,37 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 
 let folder;
+test("opens more than 200 documents and renders only the selected file", async ({
+	page,
+}) => {
+	await page.goto("/");
+	await expect(page.getByRole("status")).toContainText("パス入力");
+	let renders = 0;
+	page.on("request", (request) => {
+		if (request.url().endsWith("/api/render")) renders++;
+	});
+	await page.locator("#files").setInputFiles(
+		Array.from({ length: 251 }, (_, index) => ({
+			name: `${String(index).padStart(3, "0")}.md`,
+			mimeType: "text/markdown",
+			buffer: Buffer.from(`# Document ${index}`),
+		})),
+	);
+	await expect(page.getByRole("tab")).toHaveCount(251);
+	await expect(
+		page
+			.frameLocator("#content")
+			.getByRole("heading", { name: "Document 0", exact: true }),
+	).toBeVisible();
+	expect(renders).toBe(1);
+	await page.getByRole("tab", { name: "250.md", exact: true }).click();
+	await expect(
+		page
+			.frameLocator("#content")
+			.getByRole("heading", { name: "Document 250", exact: true }),
+	).toBeVisible();
+	expect(renders).toBe(2);
+});
 test("theme persists and syncs the reader and browser tabs", async ({
 	page,
 }) => {
