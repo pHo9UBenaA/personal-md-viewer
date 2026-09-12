@@ -20,14 +20,16 @@ test("imports over 200 documents lazily and accepts a drop onto the reader", asy
 			buffer: Buffer.from(`# Document ${index}`),
 		})),
 	);
-	await expect(page.getByRole("tab")).toHaveCount(201);
+	await expect(page.getByRole("tab")).toHaveCount(1);
+	await expect(page.getByRole("treeitem")).toHaveCount(201);
 	await expect(
 		page
 			.frameLocator("#content")
 			.getByRole("heading", { name: "Document 0", exact: true }),
 	).toBeVisible();
 	expect(renders).toBe(1);
-	await page.getByRole("tab", { name: "200.md", exact: true }).click();
+	await page.getByRole("treeitem", { name: "200.md", exact: true }).click();
+	await expect(page.getByRole("tab")).toHaveCount(2);
 	await expect(
 		page
 			.frameLocator("#content")
@@ -48,7 +50,8 @@ test("imports over 200 documents lazily and accepts a drop onto the reader", asy
 			}),
 		);
 	});
-	await expect(page.getByRole("tab")).toHaveCount(202);
+	await expect(page.getByRole("tab")).toHaveCount(3);
+	await expect(page.getByRole("treeitem")).toHaveCount(202);
 	await expect(
 		page
 			.frameLocator("#content")
@@ -74,7 +77,7 @@ test("theme persists and syncs the reader and browser tabs", async ({
 		"color-scheme",
 		"dark",
 	);
-	await page.getByRole("tab", { name: "B.markdown", exact: true }).click();
+	await page.getByRole("treeitem", { name: "B.markdown", exact: true }).click();
 	await expect(
 		page
 			.frameLocator("#content")
@@ -143,7 +146,10 @@ async function openFolder(page) {
 		.locator("#open-form")
 		.getByRole("button", { name: "開く", exact: true })
 		.click();
-	await expect(page.getByRole("tab")).toHaveCount(2);
+	await expect(page.getByRole("tab")).toHaveCount(1);
+	await expect(
+		page.getByRole("treeitem", { name: "B.markdown" }),
+	).toBeVisible();
 	await expect(
 		page
 			.frameLocator("#content")
@@ -183,6 +189,7 @@ test("folder tabs, relative links, local images, no remote requests or HTML exec
 	await page.keyboard.press("ArrowRight");
 	await expect(nestedFolder).toHaveAttribute("aria-expanded", "true");
 	await page.getByRole("treeitem", { name: "B.markdown", exact: true }).click();
+	await expect(page.getByRole("tab")).toHaveCount(2);
 	await expect(
 		page.frameLocator("#content").getByRole("heading", {
 			name: "Second document",
@@ -230,9 +237,18 @@ test("palette keyboard search, source view, close active tab and close all", asy
 	page,
 }) => {
 	await openFolder(page);
-	await page.keyboard.press("Control+k");
+	await page.keyboard.press("Control+Shift+P");
 	await expect(page.getByRole("dialog")).toBeVisible();
+	await expect(page.locator("#results button")).toHaveCount(0);
+	await page.locator("#command").fill("  ");
+	await expect(page.locator("#results button")).toHaveCount(0);
+	expect(
+		await page
+			.locator("#palette")
+			.evaluate((element) => element.getBoundingClientRect().width),
+	).toBeGreaterThan(700);
 	await page.locator("#command").fill("B.markdown");
+	await expect(page.locator("#results button")).toHaveCount(1);
 	await page.locator("#command").press("Enter");
 	await expect(page.getByRole("dialog")).not.toBeVisible();
 	await expect(
@@ -248,13 +264,56 @@ test("palette keyboard search, source view, close active tab and close all", asy
 		.getByRole("button", { name: "nested/B.markdown を閉じる", exact: true })
 		.click();
 	await expect(page.getByRole("tab")).toHaveCount(1);
+	await expect(
+		page.getByRole("treeitem", { name: "B.markdown" }),
+	).toBeVisible();
 	await expect(page.frameLocator("#content").locator("pre")).toContainText(
 		"# First document",
 	);
+	await page
+		.getByRole("button", { name: "A # %.md を閉じる", exact: true })
+		.click();
+	await expect(page.getByRole("tab")).toHaveCount(0);
+	await page.getByRole("treeitem", { name: "B.markdown" }).click();
+	await expect(page.getByRole("tab")).toHaveCount(1);
 	await page.getByRole("button", { name: "すべて閉じる" }).click();
+	await expect(page.getByRole("treeitem")).toHaveCount(0);
 	await expect(
 		page.getByRole("heading", { name: "パスから、すぐ読む。" }),
 	).toBeVisible();
+});
+test("sidebar width can be dragged, adjusted by keyboard, and restored", async ({
+	page,
+}) => {
+	await openFolder(page);
+	const sidebar = page.locator("#sidebar");
+	const resizer = page.getByRole("separator", { name: "サイドバーの幅" });
+	const originalWidth = await sidebar.evaluate(
+		(element) => element.getBoundingClientRect().width,
+	);
+	const handle = await resizer.boundingBox();
+	await page.mouse.move(handle.x + handle.width / 2, handle.y + 80);
+	await page.mouse.down();
+	await page.mouse.move(handle.x + handle.width / 2 + 120, handle.y + 80);
+	await page.mouse.up();
+	await expect(resizer).toHaveAttribute(
+		"aria-valuenow",
+		String(originalWidth + 120),
+	);
+	await resizer.focus();
+	await page.keyboard.press("ArrowLeft");
+	const adjustedWidth = originalWidth + 100;
+	await expect(resizer).toHaveAttribute("aria-valuenow", String(adjustedWidth));
+	await page.reload();
+	await expect(resizer).toHaveAttribute("aria-valuenow", String(adjustedWidth));
+	await expect
+		.poll(() =>
+			sidebar.evaluate((element) => element.getBoundingClientRect().width),
+		)
+		.toBe(adjustedWidth);
+	await page.setViewportSize({ width: 390, height: 820 });
+	await page.setViewportSize({ width: 1280, height: 820 });
+	await expect(resizer).toHaveAttribute("aria-valuenow", String(adjustedWidth));
 });
 test("native folder input reads file content without pretending it has absolute paths", async ({
 	page,
@@ -269,7 +328,7 @@ test("native folder input reads file content without pretending it has absolute 
 	await page.getByRole("button", { name: "フォルダーを選択" }).click();
 	await (await chooser).setFiles(folder);
 	await expect(page.locator("#add-menu")).not.toHaveAttribute("open", "");
-	await expect(page.getByRole("tab")).toHaveCount(2);
+	await expect(page.getByRole("tab")).toHaveCount(1);
 	await expect(
 		page.getByRole("treeitem", { name: "nested フォルダー" }),
 	).toBeVisible();
@@ -301,7 +360,7 @@ test("palette includes subfolders by default and the checkbox can opt out", asyn
 	await expect(page.locator("#palette-recursive")).toBeChecked();
 	await page.locator("#command").fill(folder);
 	await page.locator("#command").press("Enter");
-	await expect(page.getByRole("tab")).toHaveCount(2);
+	await expect(page.getByRole("tab")).toHaveCount(1);
 	await page.getByRole("button", { name: /開く・検索/ }).click();
 	await page.locator("#palette-recursive").uncheck();
 	const request = page.waitForRequest("**/api/open");
@@ -354,7 +413,9 @@ test("late read responses cannot replace the current document; reload reads disk
 		await route.fulfill({ response });
 	});
 	try {
-		await page.getByRole("tab", { name: "B.markdown", exact: true }).click();
+		await page
+			.getByRole("treeitem", { name: "B.markdown", exact: true })
+			.click();
 		await started;
 		await page.getByRole("tab", { name: "A # %.md", exact: true }).click();
 		const heading = page

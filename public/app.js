@@ -1,5 +1,6 @@
 const $ = (id) => document.getElementById(id);
 const token = document.querySelector('meta[name="viewer-token"]').content;
+const available = new Map();
 const tabs = new Map();
 let active = null;
 let generation = 0;
@@ -12,6 +13,74 @@ let importNumber = 0;
 const collapsedFolders = new Set();
 const filterCollapsedFolders = new Set();
 const MAX_BYTES = 1024 * 1024;
+
+const workspace = document.querySelector(".workspace");
+const resizer = $("sidebar-resizer");
+let sidebarWidth = 250;
+let resizeOffset = 0;
+try {
+	const saved = Number(localStorage.getItem("viewer-sidebar-width"));
+	if (Number.isFinite(saved) && saved > 0) sidebarWidth = saved;
+} catch {
+	/* Resizing still works without persistence. */
+}
+let preferredSidebarWidth = sidebarWidth;
+function sidebarMaxWidth() {
+	return Math.max(180, Math.min(600, workspace.clientWidth - 326));
+}
+function setSidebarWidth(width, persist = false) {
+	if (!Number.isFinite(width)) return;
+	sidebarWidth = Math.round(Math.max(180, Math.min(sidebarMaxWidth(), width)));
+	workspace.style.setProperty("--sidebar-width", `${sidebarWidth}px`);
+	resizer.setAttribute("aria-valuemax", String(sidebarMaxWidth()));
+	resizer.setAttribute("aria-valuenow", String(sidebarWidth));
+	if (persist) {
+		preferredSidebarWidth = sidebarWidth;
+		try {
+			localStorage.setItem("viewer-sidebar-width", String(sidebarWidth));
+		} catch {
+			/* Resizing still works without persistence. */
+		}
+	}
+}
+setSidebarWidth(sidebarWidth);
+window.addEventListener("resize", () => {
+	if (window.innerWidth > 760) setSidebarWidth(preferredSidebarWidth);
+});
+resizer.addEventListener("pointerdown", (event) => {
+	if (event.button !== 0) return;
+	resizeOffset = event.clientX - $("sidebar").getBoundingClientRect().right;
+	resizer.setPointerCapture(event.pointerId);
+	resizer.focus();
+	document.body.classList.add("resizing-sidebar");
+});
+resizer.addEventListener("pointermove", (event) => {
+	if (resizer.hasPointerCapture(event.pointerId))
+		setSidebarWidth(
+			event.clientX - workspace.getBoundingClientRect().left - resizeOffset,
+		);
+});
+function finishSidebarResize() {
+	document.body.classList.remove("resizing-sidebar");
+	setSidebarWidth(sidebarWidth, true);
+}
+resizer.addEventListener("pointerup", finishSidebarResize);
+resizer.addEventListener("pointercancel", finishSidebarResize);
+resizer.addEventListener("keydown", (event) => {
+	const width =
+		event.key === "ArrowLeft"
+			? sidebarWidth - 20
+			: event.key === "ArrowRight"
+				? sidebarWidth + 20
+				: event.key === "Home"
+					? 180
+					: event.key === "End"
+						? sidebarMaxWidth()
+						: null;
+	if (width === null) return;
+	event.preventDefault();
+	setSidebarWidth(width, true);
+});
 
 let theme = document.documentElement.dataset.theme;
 function applyTheme(value) {
@@ -82,8 +151,11 @@ function keyFor(doc) {
 }
 
 async function addDocuments(documents) {
-	for (const doc of documents)
-		tabs.set(keyFor(doc), { ...tabs.get(keyFor(doc)), ...doc });
+	for (const doc of documents) {
+		const key = keyFor(doc);
+		if (available.has(key)) Object.assign(available.get(key), doc);
+		else available.set(key, doc);
+	}
 	if (documents.length) await activate(keyFor(documents[0]));
 }
 
@@ -203,7 +275,8 @@ function drawTreeBranch(
 }
 
 function drawTabs() {
-	$("count").textContent = String(tabs.size);
+	$("count").textContent = String(available.size);
+	workspace.dataset.hasDocuments = String(available.size > 0);
 	$("tabs").replaceChildren();
 	$("file-list").replaceChildren();
 	const query = $("filter").value.trim().toLocaleLowerCase();
@@ -223,9 +296,10 @@ function drawTabs() {
 		group.setAttribute("role", "presentation");
 		group.append(tab, close);
 		$("tabs").append(group);
+	}
+	for (const [key, doc] of available)
 		if (`${doc.label} ${doc.path ?? ""}`.toLocaleLowerCase().includes(query))
 			visibleDocuments.push([key, doc]);
-	}
 	drawTreeBranch(
 		treeFromDocuments(visibleDocuments),
 		$("file-list"),
@@ -282,7 +356,7 @@ function localHref(href, label) {
 async function followLink(doc, href) {
 	if (doc.files) {
 		const label = localHref(href, doc.label);
-		const target = [...tabs.entries()].find(
+		const target = [...available.entries()].find(
 			([, item]) => item.files === doc.files && item.label === label,
 		);
 		if (!target)
@@ -377,8 +451,9 @@ async function decorate(frameDocument, doc, revision, hash) {
 }
 
 async function activate(key, hash) {
-	const doc = tabs.get(key);
+	const doc = available.get(key);
 	if (!doc) return;
+	tabs.set(key, doc);
 	active = key;
 	const revision = ++generation;
 	clearReader();
@@ -492,12 +567,14 @@ async function importFiles(files) {
 }
 
 function updatePalette() {
-	const query = $("command").value.toLocaleLowerCase();
-	paletteMatches = [...tabs.entries()]
-		.filter(([, doc]) =>
-			`${doc.label} ${doc.path ?? ""}`.toLocaleLowerCase().includes(query),
-		)
-		.slice(0, 20);
+	const query = $("command").value.trim().toLocaleLowerCase();
+	paletteMatches = !query
+		? []
+		: [...available.entries()]
+				.filter(([, doc]) =>
+					`${doc.label} ${doc.path ?? ""}`.toLocaleLowerCase().includes(query),
+				)
+				.slice(0, 20);
 	paletteIndex = Math.min(paletteIndex, Math.max(0, paletteMatches.length - 1));
 	$("results").replaceChildren(
 		...paletteMatches.map(([key, doc], index) => {
@@ -519,7 +596,12 @@ function openPalette() {
 	$("command").focus();
 }
 function shortcuts(event) {
-	if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+	if (
+		(event.metaKey || event.ctrlKey) &&
+		event.shiftKey &&
+		!event.altKey &&
+		event.key.toLowerCase() === "p"
+	) {
 		event.preventDefault();
 		openPalette();
 	}
@@ -547,6 +629,7 @@ $("command").addEventListener("keydown", (event) => {
 $("palette-form").addEventListener("submit", (event) => {
 	event.preventDefault();
 	const value = $("command").value.trim();
+	if (!value) return;
 	if (paletteMatches.length && !/^(?:\/|~|\.|[a-z]:[\\/])/i.test(value)) {
 		$("palette").close();
 		activate(paletteMatches[paletteIndex][0]);
@@ -604,6 +687,7 @@ for (const id of ["files", "folder"])
 	});
 $("close-all").addEventListener("click", () => {
 	tabs.clear();
+	available.clear();
 	active = null;
 	generation++;
 	clearReader();

@@ -143,13 +143,37 @@ kbd {
 .workspace {
 	display: grid;
 	flex: 1;
-	grid-template-columns: 250px minmax(0, 1fr);
+	grid-template-columns: var(--sidebar-width, 250px) 6px minmax(0, 1fr);
 	min-height: 0;
 }
 .sidebar {
 	padding: 16px 12px;
 	overflow: auto;
-	border-right: 1px solid var(--border);
+}
+#sidebar-resizer {
+	position: relative;
+	touch-action: none;
+	cursor: col-resize;
+	background: var(--border);
+}
+#sidebar-resizer::after {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: 2px;
+	width: 2px;
+	content: "";
+	background: var(--accent);
+	opacity: 0;
+}
+#sidebar-resizer:hover::after,
+#sidebar-resizer:focus-visible::after,
+body.resizing-sidebar #sidebar-resizer::after {
+	opacity: 1;
+}
+body.resizing-sidebar {
+	cursor: col-resize;
+	user-select: none;
 }
 .sidebar-heading {
 	display: flex;
@@ -350,7 +374,7 @@ iframe {
 	border: 0;
 }
 dialog {
-	width: min(620px, calc(100vw - 32px));
+	width: min(760px, calc(100vw - 32px));
 	max-height: 80dvh;
 	padding: 22px;
 	overflow: auto;
@@ -410,10 +434,12 @@ body.dragging {
 	.sidebar {
 		max-height: min(32dvh, 260px);
 		padding: 10px 12px;
-		border-right: 0;
 		border-bottom: 1px solid var(--border);
 	}
-	body:has(#empty:not([hidden])) .sidebar {
+	#sidebar-resizer {
+		display: none;
+	}
+	.workspace[data-has-documents="false"] .sidebar {
 		display: none;
 	}
 	.toolbar {

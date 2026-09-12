@@ -13,7 +13,7 @@
   <header class="toolbar">
     <a class="brand" href="/">Markdown <span>Viewer</span></a>
     <div class="toolbar-actions">
-      <button id="palette-open" class="search-action" type="button">開く・検索 <kbd>⌘ / Ctrl K</kbd></button>
+      <button id="palette-open" class="search-action" type="button">開く・検索 <kbd>⌘⇧P</kbd></button>
       <details id="add-menu" class="add-menu">
         <summary>追加</summary>
         <div class="add-menu-panel" aria-label="ファイルを追加">
@@ -27,8 +27,8 @@
     <input id="folder" type="file" webkitdirectory multiple hidden>
   </header>
   <div id="status" role="status" aria-live="polite"></div>
-  <div class="workspace">
-    <aside class="sidebar" aria-label="開いているファイル">
+  <div class="workspace" data-has-documents="false">
+    <aside id="sidebar" class="sidebar" aria-label="開いているファイル">
       <div class="sidebar-heading"><span>ファイル <span id="count">0</span></span><button id="close-all" type="button">すべて閉じる</button></div>
       <label class="sr-only" for="filter">ファイルを絞り込む</label>
       <input id="filter" type="search" placeholder="ファイルを絞り込む">
@@ -36,6 +36,7 @@
       <div class="sidebar-heading">このページの目次</div>
       <nav id="outline" aria-label="目次"></nav>
     </aside>
+    <div id="sidebar-resizer" role="separator" aria-label="サイドバーの幅" aria-controls="sidebar" aria-orientation="vertical" aria-valuemin="180" aria-valuemax="600" aria-valuenow="250" tabindex="0"></div>
     <main>
       <div id="tabs" role="tablist" aria-label="Markdown タブ"></div>
       <section id="empty">
