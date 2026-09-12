@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewer-token" content="__TOKEN__">
+  <title>Markdown Viewer</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" type="module"></script>
+</head>
+<body>
+  <header class="toolbar">
+    <a class="brand" href="/">Markdown <span>Viewer</span></a>
+    <button id="palette-open" type="button">開く・検索 <kbd>⌘ / Ctrl K</kbd></button>
+    <button id="pick-files" type="button">ファイルを選択</button>
+    <button id="pick-folder" type="button">フォルダーを選択</button>
+    <input id="files" type="file" accept=".md,.markdown" multiple hidden>
+    <input id="folder" type="file" webkitdirectory multiple hidden>
+  </header>
+  <div id="status" role="status" aria-live="polite"></div>
+  <div class="workspace">
+    <aside class="sidebar" aria-label="開いているファイル">
+      <div class="sidebar-heading"><span>ファイル <span id="count">0</span></span><button id="close-all" type="button">すべて閉じる</button></div>
+      <label class="sr-only" for="filter">ファイルを絞り込む</label>
+      <input id="filter" type="search" placeholder="ファイルを絞り込む">
+      <div id="file-list"></div>
+      <div class="sidebar-heading">このページの目次</div>
+      <nav id="outline" aria-label="目次"></nav>
+    </aside>
+    <main>
+      <div id="tabs" role="tablist" aria-label="Markdown タブ"></div>
+      <section id="empty">
+        <p class="eyebrow">LOCAL MARKDOWN READER</p>
+        <h1>パスから、すぐ読む。</h1>
+        <p>Markdown やフォルダーを開くと、ここにタブが並びます。<br>ファイルは編集しません。</p>
+        <form id="open-form">
+          <label for="path">ファイル・フォルダーのパス</label>
+          <div class="path-row"><input id="path" type="text" placeholder="/Users/you/Documents/notes" spellcheck="false" autocomplete="off" required><button type="submit">開く</button></div>
+          <label class="check"><input id="recursive" type="checkbox">サブフォルダーも含める</label>
+        </form>
+        <p class="hint">~ と相対パスにも対応。ファイルやフォルダーをこの画面にドロップしても開けます。<br>フォルダー選択では、選択したフォルダー以下の Markdown を読み込みます。</p>
+      </section>
+      <section id="reader" hidden>
+        <div class="document-bar"><span id="document-path"></span><a id="separate-tab" target="_blank" rel="noopener noreferrer" hidden>別タブで開く</a><button id="reload" type="button">再読み込み</button><button id="source-toggle" type="button" aria-pressed="false">ソース</button></div>
+        <iframe id="content" title="Markdown 本文" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>
+      </section>
+    </main>
+  </div>
+  <dialog id="palette" aria-labelledby="palette-title">
+    <div class="palette-heading"><h2 id="palette-title">開く・検索</h2><button id="palette-close" type="button" aria-label="閉じる">Esc</button></div>
+    <form id="palette-form">
+      <label for="command">絶対パス、または開いているファイル名</label>
+      <div class="path-row"><input id="command" autocomplete="off" spellcheck="false" placeholder="パスを入力 / ファイルを検索"><button type="submit">開く</button></div>
+      <label class="check"><input id="palette-recursive" type="checkbox">サブフォルダーも含める</label>
+    </form>
+    <div id="results" aria-label="検索結果"></div>
+    <p class="hint">↑ ↓ で選択 · Enter で開く · Esc で閉じる</p>
+  </dialog>
+</body>
+</html>

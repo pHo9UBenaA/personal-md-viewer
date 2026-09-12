@@ -1,0 +1,231 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect, test } from "@playwright/test";
+
+let folder;
+test.beforeAll(async () => {
+	folder = await mkdtemp(join(tmpdir(), "viewer-browser-日本語-"));
+	await mkdir(join(folder, "nested"));
+	await writeFile(
+		join(folder, "A # %.md"),
+		"# First document\n\n[Next](nested/B.markdown#second-document)\n\n## Outline entry\n\n![pixel](pixel.png)\n\n![tracker](https://example.com/tracker.png)\n\n<script>parent.pwned = true</script>",
+	);
+	await writeFile(
+		join(folder, "nested/B.markdown"),
+		"# Second document\n\nWorks.",
+	);
+	await writeFile(
+		join(folder, "pixel.png"),
+		Buffer.from(
+			"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jL1sAAAAASUVORK5CYII=",
+			"base64",
+		),
+	);
+});
+test.afterAll(async () => {
+	await rm(folder, { recursive: true, force: true });
+});
+async function openFolder(page) {
+	await page.goto("/");
+	await expect(page.getByRole("status")).toContainText("パス入力");
+	await page
+		.getByLabel("ファイル・フォルダーのパス", { exact: true })
+		.fill(folder);
+	await page.locator("#recursive").check();
+	await page
+		.locator("#open-form")
+		.getByRole("button", { name: "開く", exact: true })
+		.click();
+	await expect(page.getByRole("tab")).toHaveCount(2);
+	await expect(
+		page
+			.frameLocator("#content")
+			.getByRole("heading", { name: "First document", exact: true }),
+	).toBeVisible();
+}
+test("folder tabs, relative links, local images, no remote requests or HTML execution", async ({
+	page,
+}) => {
+	const remote = [];
+	page.on("request", (request) => {
+		if (request.url().startsWith("https://")) remote.push(request.url());
+	});
+	await openFolder(page);
+	await expect(page.frameLocator("#content").locator("img")).toHaveAttribute(
+		"src",
+		/^blob:/,
+	);
+	await expect(
+		page.frameLocator("#content").locator(".image-note"),
+	).toContainText("外部画像");
+	expect(await page.evaluate(() => window.pwned)).toBeUndefined();
+	expect(remote).toEqual([]);
+	await page
+		.frameLocator("#content")
+		.getByRole("link", { name: "Next" })
+		.click();
+	await expect(
+		page
+			.frameLocator("#content")
+			.getByRole("heading", { name: "Second document" }),
+	).toBeVisible();
+	await expect(page.getByRole("tab")).toHaveCount(2);
+});
+test("palette keyboard search, source view, close active tab and close all", async ({
+	page,
+}) => {
+	await openFolder(page);
+	await page.keyboard.press("Control+k");
+	await expect(page.getByRole("dialog")).toBeVisible();
+	await page.locator("#command").fill("B.markdown");
+	await page.locator("#command").press("Enter");
+	await expect(page.getByRole("dialog")).not.toBeVisible();
+	await expect(
+		page
+			.frameLocator("#content")
+			.getByRole("heading", { name: "Second document" }),
+	).toBeVisible();
+	await page.getByRole("button", { name: "ソース", exact: true }).click();
+	await expect(page.frameLocator("#content").locator("pre")).toContainText(
+		"# Second document",
+	);
+	await page
+		.getByRole("button", { name: "nested/B.markdown を閉じる", exact: true })
+		.click();
+	await expect(page.getByRole("tab")).toHaveCount(1);
+	await page.getByRole("button", { name: "すべて閉じる" }).click();
+	await expect(
+		page.getByRole("heading", { name: "パスから、すぐ読む。" }),
+	).toBeVisible();
+});
+test("native folder input reads file content without pretending it has absolute paths", async ({
+	page,
+}) => {
+	await page.goto("/");
+	await expect(page.getByRole("status")).toContainText("パス入力");
+	await page.locator("#folder").setInputFiles(folder);
+	await expect(page.getByRole("tab")).toHaveCount(2);
+	await expect(
+		page
+			.frameLocator("#content")
+			.getByRole("heading", { name: "First document", exact: true }),
+	).toBeVisible();
+	await expect(page.frameLocator("#content").locator("img")).toHaveAttribute(
+		"src",
+		/^blob:/,
+	);
+	await expect(page.getByRole("button", { name: "再読み込み" })).toBeDisabled();
+	await page
+		.frameLocator("#content")
+		.getByRole("link", { name: "Next" })
+		.click();
+	await expect(
+		page
+			.frameLocator("#content")
+			.getByRole("heading", { name: "Second document" }),
+	).toBeVisible();
+});
+test("missing paths are recoverable and mobile opening remains usable", async ({
+	page,
+}) => {
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.goto("/");
+	await expect(page.getByRole("status")).toContainText("パス入力");
+	await page.locator("#path").fill(join(folder, "missing.md"));
+	await page.locator("#open-form button").click();
+	await expect(page.getByRole("status")).toContainText("見つかりません");
+	await page.locator("#path").fill(join(folder, "A # %.md"));
+	await page.locator("#open-form button").click();
+	await expect(
+		page
+			.frameLocator("#content")
+			.getByRole("heading", { name: "First document", exact: true }),
+	).toBeVisible();
+	expect(
+		await page.evaluate(
+			() => document.documentElement.scrollWidth <= innerWidth,
+		),
+	).toBe(true);
+	await page.screenshot({ path: test.info().outputPath("mobile.png") });
+});
+
+test("separate browser tab, script-blocking CSP and rapid switching", async ({
+	page,
+}) => {
+	await openFolder(page);
+	await page.screenshot({ path: test.info().outputPath("desktop.png") });
+	const popupPromise = page.waitForEvent("popup");
+	await page.getByRole("link", { name: "別タブで開く" }).click();
+	const popup = await popupPromise;
+	await expect(
+		popup
+			.frameLocator("#content")
+			.getByRole("heading", { name: "First document", exact: true }),
+	).toBeVisible();
+	await popup.close();
+	// Even if active markup reached the iframe, its stricter CSP blocks scripts.
+	await page.evaluate(() => {
+		const doc = document.getElementById("content").contentDocument;
+		const script = doc.createElement("script");
+		script.textContent = "parent.cspBypassed = true";
+		doc.body.append(script);
+		const img = doc.createElement("img");
+		img.setAttribute("onerror", "parent.cspBypassed = true");
+		doc.body.append(img);
+		img.dispatchEvent(new Event("error"));
+	});
+	expect(await page.evaluate(() => window.cspBypassed)).toBeUndefined();
+	await page.getByRole("tab", { name: "B.markdown", exact: true }).click();
+	await page.getByRole("tab", { name: "A # %.md", exact: true }).click();
+	await expect(
+		page
+			.frameLocator("#content")
+			.getByRole("heading", { name: "First document", exact: true }),
+	).toBeVisible();
+	await page.getByRole("button", { name: "再読み込み", exact: true }).click();
+	await expect(
+		page
+			.frameLocator("#content")
+			.getByRole("heading", { name: "First document", exact: true }),
+	).toBeVisible();
+});
+
+test("multiple file selection and dropping onto the reader", async ({
+	page,
+}) => {
+	await page.goto("/");
+	await expect(page.getByRole("status")).toContainText("パス入力");
+	await page
+		.locator("#files")
+		.setInputFiles([
+			join(folder, "A # %.md"),
+			join(folder, "nested/B.markdown"),
+		]);
+	await expect(page.getByRole("tab")).toHaveCount(2);
+	await expect(
+		page
+			.frameLocator("#content")
+			.getByRole("heading", { name: "First document", exact: true }),
+	).toBeVisible();
+	await page.evaluate(() => {
+		const frame = document.getElementById("content").contentDocument;
+		const transfer = new DataTransfer();
+		transfer.items.add(
+			new File(["# Dropped document"], "dropped.md", { type: "text/markdown" }),
+		);
+		frame.dispatchEvent(
+			new DragEvent("drop", {
+				dataTransfer: transfer,
+				bubbles: true,
+				cancelable: true,
+			}),
+		);
+	});
+	await expect(page.getByRole("tab")).toHaveCount(3);
+	await expect(
+		page
+			.frameLocator("#content")
+			.getByRole("heading", { name: "Dropped document" }),
+	).toBeVisible();
+});
