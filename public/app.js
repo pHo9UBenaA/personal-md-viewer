@@ -2,6 +2,8 @@ const $ = (id) => document.getElementById(id);
 const token = document.querySelector('meta[name="viewer-token"]').content;
 const available = new Map();
 const tabs = new Map();
+const historyTag = "markdown-viewer";
+history.replaceState({ viewer: historyTag, active: null, tabs: [] }, "");
 let active = null;
 let generation = 0;
 let showSource = false;
@@ -148,6 +150,19 @@ async function action(work) {
 
 function keyFor(doc) {
 	return doc.path ?? doc.id;
+}
+
+function recordView() {
+	const keys = [...tabs.keys()];
+	const previous = history.state;
+	if (
+		previous?.viewer === historyTag &&
+		previous.active === active &&
+		previous.tabs.length === keys.length &&
+		previous.tabs.every((key, index) => key === keys[index])
+	)
+		return;
+	history.pushState({ viewer: historyTag, active, tabs: keys }, "");
 }
 
 async function addDocuments(documents) {
@@ -322,7 +337,14 @@ function clearReader() {
 	for (const url of blobUrls) URL.revokeObjectURL(url);
 	blobUrls = [];
 	$("outline").replaceChildren();
-	$("content").srcdoc = "";
+	const frame = document.createElement("iframe");
+	frame.id = "content";
+	frame.title = "Markdown 本文";
+	frame.setAttribute(
+		"sandbox",
+		"allow-same-origin allow-popups allow-popups-to-escape-sandbox",
+	);
+	$("content").replaceWith(frame);
 }
 
 function closeTab(key) {
@@ -336,12 +358,45 @@ function closeTab(key) {
 			activate(next);
 			return;
 		}
-		generation++;
-		clearReader();
-		document.title = "Markdown Viewer";
+		showEmpty("タブを閉じました。");
+		return;
 	}
 	drawTabs();
+	recordView();
 }
+
+function showEmpty(message, record = true) {
+	active = null;
+	generation++;
+	clearReader();
+	drawTabs();
+	document.title = "Markdown Viewer";
+	status(message);
+	if (record) recordView();
+}
+
+window.addEventListener("popstate", (event) => {
+	const state = event.state;
+	if (state && state.viewer !== historyTag) return;
+	if ($("palette").open) $("palette").close();
+	tabs.clear();
+	for (const key of state?.tabs ?? []) {
+		const doc = available.get(key);
+		if (doc) tabs.set(key, doc);
+	}
+	if (state?.active && available.has(state.active)) {
+		activate(state.active, undefined, false);
+		return;
+	}
+	showEmpty(
+		state?.active
+			? "このファイルは再度取り込んでください。"
+			: available.size
+				? "ファイル一覧から選択できます。"
+				: "パス入力・ファイル選択・ドラッグ＆ドロップに対応しています。",
+		false,
+	);
+});
 
 function localHref(href, label) {
 	if (/^(?:[a-z][a-z\d+.-]*:|\/|\\)/i.test(href)) return null;
@@ -450,11 +505,12 @@ async function decorate(frameDocument, doc, revision, hash) {
 	}
 }
 
-async function activate(key, hash) {
+async function activate(key, hash, record = true) {
 	const doc = available.get(key);
 	if (!doc) return;
 	tabs.set(key, doc);
 	active = key;
+	if (record) recordView();
 	const revision = ++generation;
 	clearReader();
 	drawTabs();
@@ -687,13 +743,7 @@ for (const id of ["files", "folder"])
 	});
 $("close-all").addEventListener("click", () => {
 	tabs.clear();
-	available.clear();
-	active = null;
-	generation++;
-	clearReader();
-	drawTabs();
-	document.title = "Markdown Viewer";
-	status("すべてのタブを閉じました。");
+	showEmpty("すべてのタブを閉じました。ファイル一覧から開き直せます。");
 });
 $("reload").addEventListener("click", () => {
 	if (active) {

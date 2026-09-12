@@ -277,10 +277,73 @@ test("palette keyboard search, source view, close active tab and close all", asy
 	await page.getByRole("treeitem", { name: "B.markdown" }).click();
 	await expect(page.getByRole("tab")).toHaveCount(1);
 	await page.getByRole("button", { name: "すべて閉じる" }).click();
-	await expect(page.getByRole("treeitem")).toHaveCount(0);
+	await expect(page.getByRole("tab")).toHaveCount(0);
+	await expect(
+		page.getByRole("treeitem", { name: "B.markdown" }),
+	).toBeVisible();
 	await expect(
 		page.getByRole("heading", { name: "パスから、すぐ読む。" }),
 	).toBeVisible();
+});
+test("back and forward restore imported files and open tabs during the session", async ({
+	page,
+}) => {
+	await openFolder(page);
+	await page.getByRole("treeitem", { name: "B.markdown" }).click();
+	await expect(page.getByRole("tab")).toHaveCount(2);
+	await page.locator("#files").setInputFiles({
+		name: "C.md",
+		mimeType: "text/markdown",
+		buffer: Buffer.from("# Third document"),
+	});
+	await expect(page.getByRole("tab")).toHaveCount(3);
+	await expect(
+		page.frameLocator("#content").getByRole("heading", {
+			name: "Third document",
+		}),
+	).toBeVisible();
+	await page.evaluate(() => history.back());
+	await expect(page.getByRole("tab")).toHaveCount(2);
+	await expect(
+		page.frameLocator("#content").getByRole("heading", {
+			name: "Second document",
+		}),
+	).toBeVisible();
+	await expect(page.getByRole("treeitem", { name: "C.md" })).toBeVisible();
+	await page.evaluate(() => history.back());
+	await expect(page.getByRole("tab")).toHaveCount(1);
+	await expect(
+		page.frameLocator("#content").getByRole("heading", {
+			name: "First document",
+		}),
+	).toBeVisible();
+	await page.evaluate(() => history.back());
+	await expect(page.getByRole("tab")).toHaveCount(0);
+	await expect(page.getByRole("treeitem", { name: "C.md" })).toBeVisible();
+	await page.evaluate(() => history.forward());
+	await expect(page.getByRole("tab")).toHaveCount(1);
+	await page.evaluate(() => history.forward());
+	await expect(page.getByRole("tab")).toHaveCount(2);
+	await page.evaluate(() => history.forward());
+	await expect(page.getByRole("tab")).toHaveCount(3);
+	await expect(
+		page.frameLocator("#content").getByRole("heading", {
+			name: "Third document",
+		}),
+	).toBeVisible();
+	await page.getByRole("button", { name: "すべて閉じる" }).click();
+	await expect(page.getByRole("tab")).toHaveCount(0);
+	await expect(page.getByRole("treeitem", { name: "C.md" })).toBeVisible();
+	await page.evaluate(() => history.back());
+	await expect(page.getByRole("tab")).toHaveCount(3);
+	await expect(
+		page.frameLocator("#content").getByRole("heading", {
+			name: "Third document",
+		}),
+	).toBeVisible();
+	await page.evaluate(() => history.forward());
+	await expect(page.getByRole("tab")).toHaveCount(0);
+	await expect(page.getByRole("treeitem", { name: "C.md" })).toBeVisible();
 });
 test("sidebar width can be dragged, adjusted by keyboard, and restored", async ({
 	page,
