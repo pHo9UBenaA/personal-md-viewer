@@ -12,10 +12,17 @@
 <body>
   <header class="toolbar">
     <a class="brand" href="/">Markdown <span>Viewer</span></a>
-    <button id="palette-open" type="button">開く・検索 <kbd>⌘ / Ctrl K</kbd></button>
-    <button id="pick-files" type="button">ファイルを選択</button>
-    <button id="pick-folder" type="button">フォルダーを選択</button>
-    <button id="theme-toggle" type="button" aria-label="ダークモード" aria-pressed="false">ダーク</button>
+    <div class="toolbar-actions">
+      <button id="palette-open" class="search-action" type="button">開く・検索 <kbd>⌘ / Ctrl K</kbd></button>
+      <details id="add-menu" class="add-menu">
+        <summary>追加</summary>
+        <div class="add-menu-panel" aria-label="ファイルを追加">
+          <button id="pick-files" type="button">ファイルを選択</button>
+          <button id="pick-folder" type="button">フォルダーを選択</button>
+        </div>
+      </details>
+      <button id="theme-toggle" class="theme-action" type="button" aria-label="ダークモード" aria-pressed="false">ダーク</button>
+    </div>
     <input id="files" type="file" accept=".md,.markdown" multiple hidden>
     <input id="folder" type="file" webkitdirectory multiple hidden>
   </header>
@@ -25,7 +32,7 @@
       <div class="sidebar-heading"><span>ファイル <span id="count">0</span></span><button id="close-all" type="button">すべて閉じる</button></div>
       <label class="sr-only" for="filter">ファイルを絞り込む</label>
       <input id="filter" type="search" placeholder="ファイルを絞り込む">
-      <div id="file-list"></div>
+      <div id="file-list" role="tree" aria-label="ファイルツリー"></div>
       <div class="sidebar-heading">このページの目次</div>
       <nav id="outline" aria-label="目次"></nav>
     </aside>
@@ -38,7 +45,7 @@
         <form id="open-form">
           <label for="path">ファイル・フォルダーのパス</label>
           <div class="path-row"><input id="path" type="text" placeholder="/Users/you/Documents/notes" spellcheck="false" autocomplete="off" required><button type="submit">開く</button></div>
-          <label class="check"><input id="recursive" type="checkbox">サブフォルダーも含める</label>
+          <label class="check"><input id="recursive" type="checkbox" checked>サブフォルダーも含める</label>
         </form>
         <p class="hint">~ と相対パスにも対応。ファイルやフォルダーをこの画面にドロップしても開けます。<br>フォルダー選択では、選択したフォルダー以下の Markdown を読み込みます。</p>
       </section>
@@ -53,7 +60,7 @@
     <form id="palette-form">
       <label for="command">絶対パス、または開いているファイル名</label>
       <div class="path-row"><input id="command" autocomplete="off" spellcheck="false" placeholder="パスを入力 / ファイルを検索"><button type="submit">開く</button></div>
-      <label class="check"><input id="palette-recursive" type="checkbox">サブフォルダーも含める</label>
+      <label class="check"><input id="palette-recursive" type="checkbox" checked>サブフォルダーも含める</label>
     </form>
     <div id="results" aria-label="検索結果"></div>
     <p class="hint">↑ ↓ で選択 · Enter で開く · Esc で閉じる</p>

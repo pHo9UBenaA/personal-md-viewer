@@ -134,10 +134,11 @@ test.afterAll(async () => {
 async function openFolder(page) {
 	await page.goto("/");
 	await expect(page.getByRole("status")).toContainText("パス入力");
+	await expect(page.locator("#recursive")).toBeChecked();
+	await expect(page.locator("#palette-recursive")).toBeChecked();
 	await page
 		.getByLabel("ファイル・フォルダーのパス", { exact: true })
 		.fill(folder);
-	await page.locator("#recursive").check();
 	await page
 		.locator("#open-form")
 		.getByRole("button", { name: "開く", exact: true })
@@ -157,6 +158,42 @@ test("folder tabs, relative links, local images, no remote requests or HTML exec
 		if (request.url().startsWith("https://")) remote.push(request.url());
 	});
 	await openFolder(page);
+	const nestedFolder = page.getByRole("treeitem", {
+		name: "nested フォルダー",
+		exact: true,
+	});
+	await expect(nestedFolder).toHaveAttribute("aria-expanded", "true");
+	await expect(
+		page.getByRole("treeitem", { name: "B.markdown", exact: true }),
+	).toBeVisible();
+	await nestedFolder.locator(".tree-folder-row").click();
+	await expect(nestedFolder).toHaveAttribute("aria-expanded", "false");
+	await expect(
+		page.getByRole("treeitem", { name: "B.markdown", exact: true }),
+	).toBeHidden();
+	await page.getByPlaceholder("ファイルを絞り込む").fill("B.markdown");
+	await expect(
+		page.getByRole("treeitem", { name: "B.markdown", exact: true }),
+	).toBeVisible();
+	await page.getByPlaceholder("ファイルを絞り込む").fill("");
+	await expect(
+		page.getByRole("treeitem", { name: "B.markdown", exact: true }),
+	).toBeHidden();
+	await nestedFolder.focus();
+	await page.keyboard.press("ArrowRight");
+	await expect(nestedFolder).toHaveAttribute("aria-expanded", "true");
+	await page.getByRole("treeitem", { name: "B.markdown", exact: true }).click();
+	await expect(
+		page.frameLocator("#content").getByRole("heading", {
+			name: "Second document",
+		}),
+	).toBeVisible();
+	await page.getByRole("treeitem", { name: "A # %.md", exact: true }).click();
+	await expect(
+		page.frameLocator("#content").getByRole("heading", {
+			name: "First document",
+		}),
+	).toBeVisible();
 	await expect(page.frameLocator("#content").locator("img")).toHaveAttribute(
 		"src",
 		/^blob:/,
@@ -224,8 +261,18 @@ test("native folder input reads file content without pretending it has absolute 
 }) => {
 	await page.goto("/");
 	await expect(page.getByRole("status")).toContainText("パス入力");
-	await page.locator("#folder").setInputFiles(folder);
+	await page.locator("#add-menu summary").click();
+	await expect(
+		page.getByRole("button", { name: "ファイルを選択" }),
+	).toBeVisible();
+	const chooser = page.waitForEvent("filechooser");
+	await page.getByRole("button", { name: "フォルダーを選択" }).click();
+	await (await chooser).setFiles(folder);
+	await expect(page.locator("#add-menu")).not.toHaveAttribute("open", "");
 	await expect(page.getByRole("tab")).toHaveCount(2);
+	await expect(
+		page.getByRole("treeitem", { name: "nested フォルダー" }),
+	).toBeVisible();
 	await expect(
 		page
 			.frameLocator("#content")
@@ -246,6 +293,22 @@ test("native folder input reads file content without pretending it has absolute 
 			.getByRole("heading", { name: "Second document" }),
 	).toBeVisible();
 });
+test("palette includes subfolders by default and the checkbox can opt out", async ({
+	page,
+}) => {
+	await page.goto("/");
+	await page.getByRole("button", { name: /開く・検索/ }).click();
+	await expect(page.locator("#palette-recursive")).toBeChecked();
+	await page.locator("#command").fill(folder);
+	await page.locator("#command").press("Enter");
+	await expect(page.getByRole("tab")).toHaveCount(2);
+	await page.getByRole("button", { name: /開く・検索/ }).click();
+	await page.locator("#palette-recursive").uncheck();
+	const request = page.waitForRequest("**/api/open");
+	await page.locator("#command").fill(folder);
+	await page.locator("#command").press("Enter");
+	expect((await request).postDataJSON().recursive).toBe(false);
+});
 test("missing paths are recoverable and mobile opening remains usable", async ({
 	page,
 }) => {
@@ -261,6 +324,9 @@ test("missing paths are recoverable and mobile opening remains usable", async ({
 		page
 			.frameLocator("#content")
 			.getByRole("heading", { name: "First document", exact: true }),
+	).toBeVisible();
+	await expect(
+		page.getByRole("tree", { name: "ファイルツリー" }),
 	).toBeVisible();
 	expect(
 		await page.evaluate(

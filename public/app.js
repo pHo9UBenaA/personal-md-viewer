@@ -9,6 +9,8 @@ let blobUrls = [];
 let paletteIndex = 0;
 let paletteMatches = [];
 let importNumber = 0;
+const collapsedFolders = new Set();
+const filterCollapsedFolders = new Set();
 const MAX_BYTES = 1024 * 1024;
 
 let theme = document.documentElement.dataset.theme;
@@ -101,11 +103,111 @@ function button(text, click, className) {
 	return node;
 }
 
+function treeFromDocuments(documents) {
+	const root = { directories: new Map(), files: [] };
+	for (const [key, doc] of documents) {
+		const parts = doc.label.split(/[\\/]/).filter(Boolean);
+		let branch = root;
+		if (doc.root) {
+			const rootKey = `root:${doc.root}`;
+			if (!branch.directories.has(rootKey))
+				branch.directories.set(rootKey, {
+					name: doc.root.split(/[\\/]/).filter(Boolean).at(-1) ?? doc.root,
+					directories: new Map(),
+					files: [],
+				});
+			branch = branch.directories.get(rootKey);
+		}
+		for (const part of parts.slice(0, -1)) {
+			if (!branch.directories.has(part))
+				branch.directories.set(part, {
+					name: part,
+					directories: new Map(),
+					files: [],
+				});
+			branch = branch.directories.get(part);
+		}
+		branch.files.push({ key, doc, name: parts.at(-1) ?? doc.name });
+	}
+	return root;
+}
+
+function drawTreeBranch(
+	branch,
+	parent,
+	path = [],
+	level = 1,
+	filtering = false,
+) {
+	const directories = [...branch.directories.entries()].sort(
+		([, left], [, right]) => left.name.localeCompare(right.name),
+	);
+	for (const [id, child] of directories) {
+		const folderPath = [...path, id];
+		const folderKey = JSON.stringify(folderPath);
+		const folderState = filtering ? filterCollapsedFolders : collapsedFolders;
+		const expanded = !folderState.has(folderKey);
+		const folder = document.createElement("div");
+		folder.className = "tree-folder";
+		const row = document.createElement("div");
+		row.className = "tree-folder-row";
+		row.textContent = child.name;
+		folder.tabIndex = 0;
+		folder.dataset.folderKey = folderKey;
+		function toggleFolder() {
+			if (folderState.has(folderKey)) folderState.delete(folderKey);
+			else folderState.add(folderKey);
+			drawTabs();
+			[...$("file-list").querySelectorAll(".tree-folder")]
+				.find((item) => item.dataset.folderKey === folderKey)
+				?.focus();
+		}
+		folder.addEventListener("click", (event) => {
+			if (event.target === row) toggleFolder();
+		});
+		folder.addEventListener("keydown", (event) => {
+			if (event.target !== folder) return;
+			if (event.key === "Enter" || event.key === " ") {
+				event.preventDefault();
+				toggleFolder();
+			} else if (event.key === "ArrowRight" && !expanded) {
+				event.preventDefault();
+				toggleFolder();
+			} else if (event.key === "ArrowLeft" && expanded) {
+				event.preventDefault();
+				toggleFolder();
+			}
+		});
+		folder.setAttribute("role", "treeitem");
+		folder.setAttribute("aria-expanded", String(expanded));
+		folder.setAttribute("aria-level", String(level));
+		folder.setAttribute("aria-label", `${child.name} フォルダー`);
+		const group = document.createElement("div");
+		group.setAttribute("role", "group");
+		group.hidden = !expanded;
+		drawTreeBranch(child, group, folderPath, level + 1, filtering);
+		folder.append(row, group);
+		parent.append(folder);
+	}
+	for (const { key, doc, name } of branch.files.sort((left, right) =>
+		left.name.localeCompare(right.name),
+	)) {
+		const item = button(name, () => activate(key), "tree-file");
+		item.title = doc.path ?? doc.label;
+		item.setAttribute("role", "treeitem");
+		item.setAttribute("aria-label", name);
+		item.setAttribute("aria-level", String(level));
+		item.setAttribute("aria-current", String(active === key));
+		parent.append(item);
+	}
+}
+
 function drawTabs() {
 	$("count").textContent = String(tabs.size);
 	$("tabs").replaceChildren();
 	$("file-list").replaceChildren();
-	const query = $("filter").value.toLocaleLowerCase();
+	const query = $("filter").value.trim().toLocaleLowerCase();
+	const visibleDocuments = [];
 	for (const [key, doc] of tabs) {
 		const tab = button(doc.name, () => activate(key));
 		tab.setAttribute("role", "tab");
@@ -121,13 +223,16 @@ function drawTabs() {
 		group.setAttribute("role", "presentation");
 		group.append(tab, close);
 		$("tabs").append(group);
-		if (`${doc.label} ${doc.path ?? ""}`.toLocaleLowerCase().includes(query)) {
-			const item = button(doc.label, () => activate(key));
-			item.title = doc.path ?? doc.label;
-			item.setAttribute("aria-current", String(active === key));
-			$("file-list").append(item);
-		}
+		if (`${doc.label} ${doc.path ?? ""}`.toLocaleLowerCase().includes(query))
+			visibleDocuments.push([key, doc]);
 	}
+	drawTreeBranch(
+		treeFromDocuments(visibleDocuments),
+		$("file-list"),
+		[],
+		1,
+		Boolean(query),
+	);
 	$("empty").hidden = tabs.size > 0;
 	$("reader").hidden = tabs.size === 0;
 	if (active) {
@@ -451,9 +556,46 @@ $("open-form").addEventListener("submit", (event) => {
 	event.preventDefault();
 	action(() => openPath($("path").value, $("recursive").checked));
 });
-$("filter").addEventListener("input", drawTabs);
-$("pick-files").addEventListener("click", () => $("files").click());
-$("pick-folder").addEventListener("click", () => $("folder").click());
+$("filter").addEventListener("input", () => {
+	filterCollapsedFolders.clear();
+	drawTabs();
+});
+$("file-list").addEventListener("keydown", (event) => {
+	if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+	const items = [
+		...$("file-list").querySelectorAll('[role="treeitem"]'),
+	].filter((item) => !item.closest("[hidden]"));
+	if (!items.length) return;
+	event.preventDefault();
+	const index = items.indexOf(document.activeElement);
+	const next =
+		event.key === "Home"
+			? 0
+			: event.key === "End"
+				? items.length - 1
+				: Math.max(
+						0,
+						Math.min(
+							items.length - 1,
+							index + (event.key === "ArrowDown" ? 1 : -1),
+						),
+					);
+	items[next].focus();
+});
+$("pick-files").addEventListener("click", () => {
+	$("add-menu").open = false;
+	$("files").click();
+});
+$("pick-folder").addEventListener("click", () => {
+	$("add-menu").open = false;
+	$("folder").click();
+});
+document.addEventListener("click", (event) => {
+	if (!$("add-menu").contains(event.target)) $("add-menu").open = false;
+});
+document.addEventListener("keydown", (event) => {
+	if (event.key === "Escape") $("add-menu").open = false;
+});
 for (const id of ["files", "folder"])
 	$(id).addEventListener("change", (event) => {
 		const files = [...event.target.files];
