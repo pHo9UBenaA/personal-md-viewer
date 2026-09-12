@@ -70,6 +70,22 @@ test("absolute folder paths, recursive opt-in, extension case, and deduplication
 	const doc = await (await api("read", { id: direct.documents[0].id })).json();
 	assert.match(doc.html, /<h1>Hello<\/h1>/);
 });
+test("restored paths keep their original folder scope", async () => {
+	const { documents } = await (
+		await api("open", { path: folder, recursive: true })
+	).json();
+	const nested = documents.find((doc) => doc.name === "b.MARKDOWN");
+	const restored = await (
+		await api("restore", { path: nested.path, root: folder })
+	).json();
+	assert.equal(restored.document.id, nested.id);
+	assert.equal(restored.document.root, folder);
+	assert.equal(
+		(await api("restore", { path: join(root, "secret.md"), root: folder }))
+			.status,
+		403,
+	);
+});
 test("token, Origin, Fetch Metadata and Host protect local file APIs", async () => {
 	for (const headers of [
 		{ "X-Viewer-Token": "bad" },

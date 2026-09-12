@@ -408,6 +408,104 @@ test("back and forward restore imported files and open tabs during the session",
 	await expect(page.getByRole("tab")).toHaveCount(0);
 	await expect(page.getByRole("treeitem", { name: "C.md" })).toBeVisible();
 });
+test("reload and history navigation reopen path tabs, while imports need selection again", async ({
+	page,
+}) => {
+	await openFolder(page);
+	await page.getByRole("treeitem", { name: "B.markdown" }).click();
+	await page.reload();
+	await expect(page.getByRole("tab")).toHaveCount(2);
+	await expect(page.getByRole("tab", { name: "B.markdown" })).toHaveAttribute(
+		"aria-selected",
+		"true",
+	);
+	await expect(
+		page.frameLocator("#content").getByRole("heading", {
+			name: "Second document",
+		}),
+	).toBeVisible();
+	await page.evaluate(() => history.back());
+	await expect(page.getByRole("tab")).toHaveCount(1);
+	await expect(
+		page.frameLocator("#content").getByRole("heading", {
+			name: "First document",
+		}),
+	).toBeVisible();
+	await page
+		.frameLocator("#content")
+		.getByRole("link", { name: "Next" })
+		.click();
+	await expect(
+		page.frameLocator("#content").getByRole("heading", {
+			name: "Second document",
+		}),
+	).toBeVisible();
+	await page.locator("#files").setInputFiles({
+		name: "C.md",
+		mimeType: "text/markdown",
+		buffer: Buffer.from("# Imported document"),
+	});
+	await expect(page.getByRole("tab")).toHaveCount(3);
+	await page.reload();
+	await expect(page.getByRole("tab")).toHaveCount(2);
+	await expect(page.getByRole("status")).toContainText(
+		"再度取り込んでください",
+	);
+	await expect(
+		page.frameLocator("#content").getByRole("heading", {
+			name: "Second document",
+		}),
+	).toBeVisible();
+});
+test("an imported-only history entry explains why it cannot survive reload", async ({
+	page,
+}) => {
+	await page.goto("/");
+	await page.locator("#files").setInputFiles({
+		name: "imported.md",
+		mimeType: "text/markdown",
+		buffer: Buffer.from("# Imported document"),
+	});
+	await expect(page.getByRole("tab")).toHaveCount(1);
+	await page.reload();
+	await expect(page.getByRole("tab")).toHaveCount(0);
+	await expect(page.getByRole("status")).toContainText(
+		"再度取り込んでください",
+	);
+	await page.locator("#files").setInputFiles({
+		name: "imported.md",
+		mimeType: "text/markdown",
+		buffer: Buffer.from("# Imported again"),
+	});
+	await expect(
+		page.frameLocator("#content").getByRole("heading", {
+			name: "Imported again",
+		}),
+	).toBeVisible();
+});
+test("deleted path tabs are skipped during history restoration", async ({
+	page,
+}) => {
+	await openFolder(page);
+	await page.getByRole("treeitem", { name: "B.markdown" }).click();
+	const file = join(folder, "nested/B.markdown");
+	const original = await readFile(file);
+	try {
+		await rm(file);
+		await page.reload();
+		await expect(page.getByRole("tab")).toHaveCount(1);
+		await expect(page.getByRole("status")).toContainText(
+			"復元できませんでした",
+		);
+		await expect(
+			page.frameLocator("#content").getByRole("heading", {
+				name: "First document",
+			}),
+		).toBeVisible();
+	} finally {
+		await writeFile(file, original);
+	}
+});
 test("sidebar width can be dragged, adjusted by keyboard, and restored", async ({
 	page,
 }) => {

@@ -148,6 +148,10 @@ export async function createViewerServer({
 								body.recursive === true,
 							),
 						});
+					case "/api/restore":
+						return send(200, {
+							document: await library.restore(body.path, body.root),
+						});
 					case "/api/read": {
 						const doc = await library.read(body.id);
 						return send(200, { ...doc, html: renderMarkdown(doc.source) });

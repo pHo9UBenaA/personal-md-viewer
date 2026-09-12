@@ -2,10 +2,16 @@ const $ = (id) => document.getElementById(id);
 const token = document.querySelector('meta[name="viewer-token"]').content;
 const available = new Map();
 const tabs = new Map();
-const historyTag = "markdown-viewer";
-history.replaceState({ viewer: historyTag, active: null, tabs: [] }, "");
+const historyTag = "markdown-viewer-v2";
+const savedView = history.state?.viewer === historyTag ? history.state : null;
+if (!savedView)
+	history.replaceState(
+		{ viewer: historyTag, active: null, tabs: [], paths: [] },
+		"",
+	);
 let active = null;
 let generation = 0;
+let navigationRevision = 0;
 let showSource = false;
 let busy = false;
 let blobUrls = [];
@@ -153,6 +159,7 @@ function keyFor(doc) {
 }
 
 function recordView() {
+	navigationRevision++;
 	const keys = [...tabs.keys()];
 	const previous = history.state;
 	if (
@@ -162,7 +169,10 @@ function recordView() {
 		previous.tabs.every((key, index) => key === keys[index])
 	)
 		return;
-	history.pushState({ viewer: historyTag, active, tabs: keys }, "");
+	const paths = [...tabs.values()]
+		.filter((doc) => doc.path)
+		.map((doc) => ({ path: doc.path, root: doc.root }));
+	history.pushState({ viewer: historyTag, active, tabs: keys, paths }, "");
 }
 
 async function addDocuments(documents) {
@@ -175,8 +185,10 @@ async function addDocuments(documents) {
 }
 
 async function openPath(path, recursive) {
+	const revision = navigationRevision;
 	status("ファイルを探しています…");
 	const data = await api("open", { path, recursive });
+	if (revision !== navigationRevision) return;
 	await addDocuments(data.documents);
 	$("palette").close();
 }
@@ -378,27 +390,60 @@ function showEmpty(message, record = true) {
 	if (record) recordView();
 }
 
-window.addEventListener("popstate", (event) => {
-	const state = event.state;
-	if (state && state.viewer !== historyTag) return;
+async function restoreView(state) {
+	const revision = ++navigationRevision;
 	if ($("palette").open) $("palette").close();
 	tabs.clear();
+	showEmpty("履歴から復元しています…", false);
+	const paths = new Map((state?.paths ?? []).map((doc) => [doc.path, doc]));
+	let missingPaths = 0;
+	let missingImports = 0;
+	let restoreError = "";
 	for (const key of state?.tabs ?? []) {
-		const doc = available.get(key);
-		if (doc) tabs.set(key, doc);
+		if (revision !== navigationRevision) return;
+		let doc = available.get(key);
+		if (!doc && paths.has(key)) {
+			try {
+				const saved = paths.get(key);
+				doc = (await api("restore", saved)).document;
+				if (revision !== navigationRevision) return;
+				available.set(keyFor(doc), doc);
+			} catch (error) {
+				missingPaths++;
+				restoreError ||= error.message;
+			}
+		} else if (!doc) missingImports++;
+		if (doc) tabs.set(keyFor(doc), doc);
 	}
-	if (state?.active && available.has(state.active)) {
-		activate(state.active, undefined, false);
+	if (revision !== navigationRevision) return;
+	const selected =
+		state?.active && tabs.has(state.active)
+			? state.active
+			: [...tabs.keys()].at(-1);
+	if (selected) {
+		await activate(selected, undefined, false);
+		if (revision !== navigationRevision) return;
+		if (missingPaths)
+			status(`履歴の一部を復元できませんでした。${restoreError}`, true);
+		else if (missingImports)
+			status("ブラウザーから選択したファイルは再度取り込んでください。");
 		return;
 	}
 	showEmpty(
-		state?.active
-			? "このファイルは再度取り込んでください。"
-			: available.size
-				? "ファイル一覧から選択できます。"
-				: "パス入力・ファイル選択・ドラッグ＆ドロップに対応しています。",
+		missingPaths
+			? `履歴のパスを復元できませんでした。${restoreError}`
+			: missingImports
+				? "ブラウザーから選択したファイルは再度取り込んでください。"
+				: available.size
+					? "ファイル一覧から選択できます。"
+					: "パス入力・ファイル選択・ドラッグ＆ドロップに対応しています。",
 		false,
 	);
+}
+
+window.addEventListener("popstate", (event) => {
+	if (event.state && event.state.viewer !== historyTag) return;
+	void restoreView(event.state);
 });
 
 function localHref(href, label) {
@@ -412,6 +457,7 @@ function localHref(href, label) {
 }
 
 async function followLink(doc, href) {
+	const revision = navigationRevision;
 	if (doc.files) {
 		const label = localHref(href, doc.label);
 		const target = [...available.entries()].find(
@@ -422,6 +468,7 @@ async function followLink(doc, href) {
 		await activate(target[0], href.split("#")[1]);
 	} else {
 		const data = await api("related", { id: doc.id, href });
+		if (revision !== navigationRevision) return;
 		await addDocuments(data.documents);
 		if (href.includes("#"))
 			await activate(keyFor(data.documents[0]), href.split("#")[1]);
@@ -887,15 +934,22 @@ function handleDrop(event) {
 }
 document.addEventListener("drop", handleDrop);
 action(async () => {
+	if (savedView) {
+		await restoreView(savedView);
+		return;
+	}
+	const revision = navigationRevision;
 	const documentId = new URLSearchParams(location.hash.slice(1)).get(
 		"document",
 	);
 	if (documentId) {
 		const doc = await api("read", { id: documentId });
+		if (revision !== navigationRevision) return;
 		await addDocuments([{ ...doc, loaded: true }]);
 		return;
 	}
 	const data = await api("initial");
+	if (revision !== navigationRevision) return;
 	if (data.documents.length) await addDocuments(data.documents);
 	else status("パス入力・ファイル選択・ドラッグ＆ドロップに対応しています。");
 });

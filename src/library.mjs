@@ -203,6 +203,18 @@ export function createLibrary() {
 
 	return {
 		openPath,
+		async restore(pathInput, rootInput) {
+			const path = await realpath(normalizePath(pathInput));
+			const root = await realpath(normalizePath(rootInput));
+			if (!(await stat(root)).isDirectory() || !within(root, path))
+				throw new ViewerError("保存したフォルダーの外は復元できません。", 403);
+			const details = await stat(path);
+			if (!details.isFile() || !isMarkdown(path))
+				throw new ViewerError("Markdown ファイルを復元できません。");
+			if (details.size > MAX_FILE_BYTES)
+				throw new ViewerError("Markdown の上限は 1 MiB です。", 413);
+			return register(path, root);
+		},
 		async read(id) {
 			const doc = get(id);
 			return {
