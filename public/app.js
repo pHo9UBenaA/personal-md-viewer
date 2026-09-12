@@ -254,6 +254,8 @@ function drawTreeBranch(
 		});
 		folder.addEventListener("keydown", (event) => {
 			if (event.target !== folder) return;
+			if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)
+				return;
 			if (event.key === "Enter" || event.key === " ") {
 				event.preventDefault();
 				toggleFolder();
@@ -368,6 +370,7 @@ function closeTab(key) {
 function showEmpty(message, record = true) {
 	active = null;
 	generation++;
+	setFocusMode(false);
 	clearReader();
 	drawTabs();
 	document.title = "Markdown Viewer";
@@ -651,7 +654,31 @@ function openPalette() {
 	updatePalette();
 	$("command").focus();
 }
+function setFocusMode(enabled) {
+	if (enabled && !active) return;
+	document.body.classList.toggle("focus-mode", enabled);
+	$("focus-toggle").setAttribute("aria-pressed", String(enabled));
+	$("focus-toggle").textContent = enabled ? "通常表示" : "全画面表示";
+	$("focus-toggle").title = enabled
+		? "通常表示に戻す (Esc / ⌘⇧F / Ctrl+Shift+F)"
+		: "全画面表示 (⌘⇧F / Ctrl+Shift+F)";
+}
 function shortcuts(event) {
+	if (
+		(event.metaKey || event.ctrlKey) &&
+		event.shiftKey &&
+		!event.altKey &&
+		event.key.toLowerCase() === "f"
+	) {
+		if (!active) return;
+		event.preventDefault();
+		setFocusMode(!document.body.classList.contains("focus-mode"));
+		return;
+	}
+	if (event.key === "Escape" && !$("palette").open) {
+		setFocusMode(false);
+		return;
+	}
 	if (
 		(event.metaKey || event.ctrlKey) &&
 		event.shiftKey &&
@@ -664,6 +691,9 @@ function shortcuts(event) {
 }
 document.addEventListener("keydown", shortcuts);
 $("palette-open").addEventListener("click", openPalette);
+$("focus-toggle").addEventListener("click", () => {
+	setFocusMode(!document.body.classList.contains("focus-mode"));
+});
 $("palette-close").addEventListener("click", () => $("palette").close());
 $("command").addEventListener("input", () => {
 	paletteIndex = 0;
@@ -700,6 +730,7 @@ $("filter").addEventListener("input", () => {
 	drawTabs();
 });
 $("file-list").addEventListener("keydown", (event) => {
+	if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
 	if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
 	const items = [
 		...$("file-list").querySelectorAll('[role="treeitem"]'),
@@ -720,6 +751,33 @@ $("file-list").addEventListener("keydown", (event) => {
 						),
 					);
 	items[next].focus();
+});
+document.addEventListener("keydown", (event) => {
+	if (
+		!event.metaKey ||
+		event.ctrlKey ||
+		event.altKey ||
+		event.shiftKey ||
+		event.key !== "ArrowLeft"
+	)
+		return;
+	const tree = $("file-list");
+	if (!tree.matches(":hover") && !tree.contains(document.activeElement)) return;
+	event.preventDefault();
+	const folders = [...tree.querySelectorAll(".tree-folder")];
+	if (!folders.length) return;
+	const folderState = $("filter").value.trim()
+		? filterCollapsedFolders
+		: collapsedFolders;
+	for (const folder of folders) folderState.add(folder.dataset.folderKey);
+	const focusKey = [...tree.children].find((folder) =>
+		folder.contains(document.activeElement),
+	)?.dataset.folderKey;
+	drawTabs();
+	if (focusKey)
+		[...tree.querySelectorAll(".tree-folder")]
+			.find((folder) => folder.dataset.folderKey === focusKey)
+			?.focus();
 });
 $("pick-files").addEventListener("click", () => {
 	$("add-menu").open = false;

@@ -247,6 +247,9 @@ test("palette keyboard search, source view, close active tab and close all", asy
 			.locator("#palette")
 			.evaluate((element) => element.getBoundingClientRect().width),
 	).toBeGreaterThan(700);
+	const commandBox = await page.locator("#command").boundingBox();
+	expect(commandBox.width).toBeGreaterThan(500);
+	expect(commandBox.height).toBeGreaterThanOrEqual(48);
 	await page.locator("#command").fill("B.markdown");
 	await expect(page.locator("#results button")).toHaveCount(1);
 	await page.locator("#command").press("Enter");
@@ -284,6 +287,66 @@ test("palette keyboard search, source view, close active tab and close all", asy
 	await expect(
 		page.getByRole("heading", { name: "パスから、すぐ読む。" }),
 	).toBeVisible();
+});
+test("focus mode fills the viewport and can be toggled from the reader", async ({
+	page,
+}) => {
+	await openFolder(page);
+	const toggle = page.locator("#focus-toggle");
+	await toggle.click();
+	await expect(toggle).toHaveAttribute("aria-pressed", "true");
+	await expect(page.locator(".toolbar")).toBeHidden();
+	await expect(page.locator("#sidebar")).toBeHidden();
+	await expect(page.locator("#tabs")).toBeHidden();
+	const frameWidth = await page
+		.locator("#content")
+		.evaluate((element) => element.getBoundingClientRect().width);
+	expect(frameWidth).toBe(1280);
+	await expect(
+		page.frameLocator("#content").getByRole("heading", {
+			name: "First document",
+		}),
+	).toBeVisible();
+	await page.frameLocator("#content").locator("body").press("Control+Shift+F");
+	await expect(page.locator(".toolbar")).toBeVisible();
+	await expect(toggle).toHaveAttribute("aria-pressed", "false");
+	await toggle.click();
+	await page.keyboard.press("Escape");
+	await expect(page.locator(".toolbar")).toBeVisible();
+	await expect(page.getByRole("tab")).toHaveCount(1);
+});
+test("Command+Left collapses the hovered tree without closing the active tab", async ({
+	page,
+}) => {
+	await openFolder(page);
+	const tree = page.getByRole("tree", { name: "ファイルツリー" });
+	const folders = tree.locator('.tree-folder[aria-expanded="true"]');
+	await expect(folders).toHaveCount(2);
+	await tree.hover();
+	await page.keyboard.press("Meta+ArrowLeft");
+	await expect(folders).toHaveCount(0);
+	await expect(page.getByRole("tab")).toHaveCount(1);
+	await expect(
+		page.frameLocator("#content").getByRole("heading", {
+			name: "First document",
+		}),
+	).toBeVisible();
+	const rootFolder = tree.locator(".tree-folder").first();
+	await rootFolder.focus();
+	await page.keyboard.press("ArrowRight");
+	await expect(rootFolder).toHaveAttribute("aria-expanded", "true");
+	await expect(
+		tree.getByRole("treeitem", { name: "nested フォルダー" }),
+	).toHaveAttribute("aria-expanded", "false");
+	await page.keyboard.press("Meta+ArrowLeft");
+	await expect(folders).toHaveCount(0);
+	await page.locator("#filter").fill("B.markdown");
+	await expect(folders).toHaveCount(2);
+	await tree.hover();
+	await page.keyboard.press("Meta+ArrowLeft");
+	await expect(folders).toHaveCount(0);
+	await page.locator("#filter").fill("");
+	await expect(folders).toHaveCount(0);
 });
 test("back and forward restore imported files and open tabs during the session", async ({
 	page,

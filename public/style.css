@@ -373,10 +373,43 @@ iframe {
 	background: var(--surface);
 	border: 0;
 }
+body.focus-mode .toolbar,
+body.focus-mode #status,
+body.focus-mode .sidebar,
+body.focus-mode #sidebar-resizer,
+body.focus-mode #tabs {
+	display: none;
+}
+body.focus-mode .workspace {
+	grid-template-columns: minmax(0, 1fr);
+}
+body.focus-mode main {
+	position: relative;
+}
+body.focus-mode .document-bar {
+	position: absolute;
+	top: 12px;
+	right: 16px;
+	z-index: 1;
+	min-height: 0;
+	padding: 0;
+	background: var(--dialog);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+}
+body.focus-mode .document-bar > :not(#focus-toggle) {
+	display: none;
+}
+body.focus-mode #focus-toggle {
+	padding: 7px 10px;
+	font-size: 12px;
+	background: transparent;
+	border: 0;
+}
 dialog {
 	width: min(760px, calc(100vw - 32px));
 	max-height: 80dvh;
-	padding: 22px;
+	padding: 24px;
 	overflow: auto;
 	color: inherit;
 	background: var(--dialog);
@@ -390,30 +423,61 @@ dialog::backdrop {
 }
 .palette-heading {
 	display: flex;
+	gap: 16px;
 	align-items: center;
 	justify-content: space-between;
+	padding-bottom: 18px;
+	border-bottom: 1px solid var(--border);
 }
 .palette-heading h2 {
 	margin: 0;
-	font-size: 16px;
+	font-size: 18px;
 	font-weight: 550;
 }
-dialog form {
-	margin-top: 20px;
+.palette-heading button {
+	min-width: 44px;
+}
+#palette form {
+	margin-top: 18px;
+}
+#palette .path-row {
+	margin-top: 10px;
+}
+#palette .path-row input {
+	padding: 13px 15px;
+	font-size: 15px;
+	line-height: 22px;
+}
+#palette .path-row button {
+	min-width: 72px;
+}
+#palette .check {
+	margin-top: 16px;
 }
 #results {
 	display: grid;
-	gap: 5px;
-	margin-top: 20px;
+	gap: 6px;
+	margin-top: 18px;
+}
+#results:empty {
+	display: none;
 }
 #results button {
+	min-height: 40px;
+	padding: 10px 12px;
 	overflow: hidden;
 	text-overflow: ellipsis;
+	font-size: 13px;
 	text-align: left;
 	white-space: nowrap;
 }
 #results button[data-selected="true"] {
 	background: var(--action);
+}
+#palette > .hint {
+	padding-top: 14px;
+	margin: 18px 0 0;
+	border-top: 1px solid var(--border);
 }
 .sr-only {
 	position: absolute;
@@ -476,5 +540,9 @@ body.dragging {
 	}
 	.document-bar span {
 		max-width: 50vw;
+	}
+	dialog {
+		width: calc(100vw - 24px);
+		padding: 18px;
 	}
 }

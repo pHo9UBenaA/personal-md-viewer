@@ -51,7 +51,7 @@
         <p class="hint">~ と相対パスにも対応。ファイルやフォルダーをこの画面にドロップしても開けます。<br>フォルダー選択では、選択したフォルダー以下の Markdown を読み込みます。</p>
       </section>
       <section id="reader" hidden>
-        <div class="document-bar"><span id="document-path"></span><a id="separate-tab" target="_blank" rel="noopener noreferrer" hidden>別タブで開く</a><button id="reload" type="button">再読み込み</button><button id="source-toggle" type="button" aria-pressed="false">ソース</button></div>
+        <div class="document-bar"><span id="document-path"></span><a id="separate-tab" target="_blank" rel="noopener noreferrer" hidden>別タブで開く</a><button id="reload" type="button">再読み込み</button><button id="source-toggle" type="button" aria-pressed="false">ソース</button><button id="focus-toggle" type="button" aria-pressed="false" title="全画面表示 (⌘⇧F / Ctrl+Shift+F)">全画面表示</button></div>
         <iframe id="content" title="Markdown 本文" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>
       </section>
     </main>
@@ -60,7 +60,7 @@
     <div class="palette-heading"><h2 id="palette-title">開く・検索</h2><button id="palette-close" type="button" aria-label="閉じる">Esc</button></div>
     <form id="palette-form">
       <label for="command">絶対パス、または取り込み済みのファイル名</label>
-      <div class="path-row"><input id="command" autocomplete="off" spellcheck="false" placeholder="パスを入力 / ファイルを検索"><button type="submit">開く</button></div>
+      <div class="path-row"><input id="command" type="text" autocomplete="off" spellcheck="false" placeholder="パスを入力 / ファイルを検索"><button type="submit">開く</button></div>
       <label class="check"><input id="palette-recursive" type="checkbox" checked>サブフォルダーも含める</label>
     </form>
     <div id="results" aria-label="検索結果"></div>
