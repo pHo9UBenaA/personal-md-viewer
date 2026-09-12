@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="viewer-token" content="__TOKEN__">
   <title>Markdown Viewer</title>
+  <script src="/theme.js"></script>
   <link rel="stylesheet" href="/style.css">
   <script src="/app.js" type="module"></script>
 </head>
@@ -14,6 +15,7 @@
     <button id="palette-open" type="button">開く・検索 <kbd>⌘ / Ctrl K</kbd></button>
     <button id="pick-files" type="button">ファイルを選択</button>
     <button id="pick-folder" type="button">フォルダーを選択</button>
+    <button id="theme-toggle" type="button" aria-label="ダークモード" aria-pressed="false">ダーク</button>
     <input id="files" type="file" accept=".md,.markdown" multiple hidden>
     <input id="folder" type="file" webkitdirectory multiple hidden>
   </header>

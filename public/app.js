@@ -12,6 +12,32 @@ let importNumber = 0;
 const MAX_TABS = 200;
 const MAX_BYTES = 1024 * 1024;
 
+let theme = document.documentElement.dataset.theme;
+function applyTheme(value) {
+	theme = value === "dark" ? "dark" : "light";
+	document.documentElement.dataset.theme = theme;
+	const reader = $("content").contentDocument;
+	if (reader?.documentElement) reader.documentElement.dataset.theme = theme;
+	$("theme-toggle").setAttribute("aria-pressed", String(theme === "dark"));
+	$("theme-toggle").textContent = theme === "dark" ? "ライトへ" : "ダークへ";
+}
+applyTheme(theme);
+$("theme-toggle").addEventListener("click", () => {
+	applyTheme(theme === "dark" ? "light" : "dark");
+	try {
+		localStorage.setItem("viewer-theme", theme);
+	} catch {
+		/* Toggle still works without persistence. */
+	}
+});
+window.addEventListener("storage", (event) => {
+	if (
+		event.key === "viewer-theme" &&
+		["dark", "light"].includes(event.newValue)
+	)
+		applyTheme(event.newValue);
+});
+
 function status(message, error = false) {
 	$("status").textContent = message;
 	$("status").dataset.error = String(error);
@@ -310,6 +336,7 @@ async function activate(key, hash) {
 		frame.onload = () => {
 			if (revision === generation) {
 				const child = frame.contentDocument;
+				child.documentElement.dataset.theme = theme;
 				child.addEventListener("keydown", shortcuts);
 				child.addEventListener("dragover", handleDragOver);
 				child.addEventListener("drop", handleDrop);
@@ -321,7 +348,7 @@ async function activate(key, hash) {
 		};
 		// WebKit needs allow-scripts for parent-installed event listeners. A stricter
 		// document CSP still forbids ALL script sources and inline execution.
-		frame.srcdoc = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'self'; img-src blob:; base-uri 'none'; form-action 'none'"><link rel="stylesheet" href="${location.origin}/reader.css"></head><body>${content}</body></html>`;
+		frame.srcdoc = `<!doctype html><html lang="ja" data-theme="${theme}"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'self'; img-src blob:; base-uri 'none'; form-action 'none'"><link rel="stylesheet" href="${location.origin}/reader.css"></head><body>${content}</body></html>`;
 		$("content").replaceWith(frame);
 		if (revision === generation)
 			status(

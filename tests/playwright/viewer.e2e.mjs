@@ -4,6 +4,58 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 
 let folder;
+test("theme persists and syncs the reader and browser tabs", async ({
+	page,
+}) => {
+	await page.emulateMedia({ colorScheme: "light" });
+	await openFolder(page);
+	const toggle = page.getByRole("button", {
+		name: "ダークモード",
+		exact: true,
+	});
+	await expect(toggle).toHaveAttribute("aria-pressed", "false");
+	await expect(page.frameLocator("#content").locator("html")).toHaveCSS(
+		"background-color",
+		"rgb(255, 255, 255)",
+	);
+	await page.screenshot({ path: test.info().outputPath("light.png") });
+	await toggle.click();
+	await expect(page.frameLocator("#content").locator("html")).toHaveCSS(
+		"background-color",
+		"rgb(28, 30, 28)",
+	);
+	await page.getByRole("tab", { name: "B.markdown", exact: true }).click();
+	await expect(
+		page
+			.frameLocator("#content")
+			.getByRole("heading", { name: "Second document" }),
+	).toBeVisible();
+	await expect(page.frameLocator("#content").locator("html")).toHaveCSS(
+		"color-scheme",
+		"dark",
+	);
+	await page.screenshot({ path: test.info().outputPath("dark.png") });
+	const popupPromise = page.waitForEvent("popup");
+	await page.getByRole("link", { name: "別タブで開く" }).click();
+	const popup = await popupPromise;
+	await expect(
+		popup.getByRole("button", { name: "ダークモード", exact: true }),
+	).toHaveAttribute("aria-pressed", "true");
+	await toggle.click();
+	await expect(popup.frameLocator("#content").locator("html")).toHaveCSS(
+		"color-scheme",
+		"light",
+	);
+	await popup.close();
+	await page.emulateMedia({ colorScheme: "dark" });
+	await page.reload();
+	await expect(toggle).toHaveAttribute("aria-pressed", "false");
+	await page.setViewportSize({ width: 390, height: 844 });
+	await expect(toggle).toBeVisible();
+	await toggle.click();
+	await expect(toggle).toHaveAttribute("aria-pressed", "true");
+	await page.screenshot({ path: test.info().outputPath("theme-mobile.png") });
+});
 test.beforeAll(async () => {
 	folder = await mkdtemp(join(tmpdir(), "viewer-browser-日本語-"));
 	await mkdir(join(folder, "nested"));
