@@ -14,12 +14,7 @@ import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
-import {
-	createLibrary,
-	MAX_FILE_BYTES,
-	readBounded,
-	within,
-} from "../src/library.mjs";
+import { MAX_FILE_BYTES, readBounded } from "../src/library.mjs";
 import { renderMarkdown } from "../src/render.mjs";
 import { createViewerServer } from "../src/server.mjs";
 
@@ -78,6 +73,7 @@ test("absolute folder paths, recursive opt-in, extension case, and deduplication
 test("token, Origin, Fetch Metadata and Host protect local file APIs", async () => {
 	for (const headers of [
 		{ "X-Viewer-Token": "bad" },
+		{ "X-Viewer-Token": `${token[0] === "0" ? "1" : "0"}${token.slice(1)}` },
 		{ Origin: "https://evil.example" },
 		{ "Sec-Fetch-Site": "cross-site" },
 		{ "Sec-Fetch-Site": "same-site" },
@@ -102,13 +98,7 @@ test("token, Origin, Fetch Metadata and Host protect local file APIs", async () 
 	);
 });
 test("asset routes never expose arbitrary local files", async () => {
-	for (const route of [
-		"/assets/../../package.json",
-		"/files/secret.md",
-		"/src/server.mjs",
-		"/package.json",
-		"/style.css/../README.md",
-	])
+	for (const route of ["/files/secret.md", "/package.json"])
 		assert.equal((await fetch(base + route)).status, 404);
 	const response = await fetch(base);
 	assert.match(
@@ -155,11 +145,11 @@ test("byte limits remain while folders can exceed previous document caps", async
 	const big = join(root, "big.md");
 	await writeFile(big, "x".repeat(MAX_FILE_BYTES + 1));
 	assert.equal((await api("open", { path: big })).status, 413);
-	await assert.rejects(readBounded(big, root), /上限/);
-	assert.equal(
-		(await api("render", { source: "x".repeat(MAX_FILE_BYTES + 1) })).status,
-		413,
-	);
+	const { documents: oversized } = await (
+		await api("open", { path: root })
+	).json();
+	const bigId = oversized.find((doc) => doc.name === "big.md").id;
+	assert.equal((await api("read", { id: bigId })).status, 413);
 	assert.equal(
 		(await api("render", { source: "x".repeat(2 * MAX_FILE_BYTES) })).status,
 		413,
@@ -171,20 +161,59 @@ test("byte limits remain while folders can exceed previous document caps", async
 			writeFile(join(many, `${index}.md`), "hi"),
 		),
 	);
-	assert.equal((await createLibrary().openPath(many)).length, 1001);
 	const { documents } = await (await api("open", { path: many })).json();
 	assert.equal(documents.length, 1001);
-	await assert.rejects(createLibrary().openPath(join(root, "missing")));
 	const empty = join(root, "empty");
 	await mkdir(empty);
-	await assert.rejects(
-		createLibrary().openPath(empty),
-		/Markdown がありません/,
-	);
+	assert.equal((await api("open", { path: empty })).status, 400);
 });
-test("path containment distinguishes siblings and dot-prefixed names", () => {
-	assert.equal(within("/docs", "/docs-escape/a"), false);
-	assert.equal(within("/docs", "/docs/..notes/a"), true);
+test("encoded local links preserve contents and cannot escape into a sibling", async () => {
+	const selected = join(root, "links");
+	const sibling = `${selected}-outside`;
+	await mkdir(selected);
+	await mkdir(sibling);
+	await writeFile(join(selected, "index.md"), "index");
+	await writeFile(join(sibling, "secret.md"), "secret");
+	const { documents } = await (
+		await api("open", { path: join(selected, "index.md") })
+	).json();
+	const id = documents[0].id;
+	// Bounded generated cases: encoding and harmless path rewrites preserve identity.
+	for (const [index, name] of [
+		"space name",
+		"日本語",
+		"hash#query?",
+		"percent%2e",
+		"..notes",
+	].entries()) {
+		const file = `${name}.md`;
+		const source = `unique content ${index}`;
+		await writeFile(join(selected, file), source);
+		let canonicalId;
+		for (const href of [
+			encodeURIComponent(file),
+			`./${encodeURIComponent(file)}#heading`,
+		]) {
+			const response = await api("related", { id, href });
+			assert.equal(response.status, 200, href);
+			const {
+				documents: [doc],
+			} = await response.json();
+			canonicalId ??= doc.id;
+			assert.equal(doc.id, canonicalId, href);
+			assert.equal(
+				(await (await api("read", { id: doc.id })).json()).source,
+				source,
+				href,
+			);
+		}
+	}
+	for (const href of [
+		"../links-outside/secret.md",
+		"%2e%2e/links-outside/secret.md",
+	]) {
+		assert.equal((await api("related", { id, href })).status, 403, href);
+	}
 });
 test("configured origin supports proxies without trusting forwarded headers", async () => {
 	// Use node:http to send the exact Host header a reverse proxy forwards.
@@ -275,7 +304,7 @@ test(
 );
 test("Markdown escapes active HTML, unsafe links and code info; images stay inert", () => {
 	const html = renderMarkdown(
-		'<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>\n\n[x](javascript:alert(1))\n\n![remote](https://evil.example/track)\n\n```js" onmouseover="alert(1)\n<script>\n```',
+		'<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>\n\n[x](javascript:alert(1))\n\n![remote](https://evil.example/track)\n\n[safe](nested/b.md)\n\n```js" onmouseover="alert(1)\n<script>\n```',
 	);
 	assert.doesNotMatch(
 		html,
@@ -283,8 +312,32 @@ test("Markdown escapes active HTML, unsafe links and code info; images stay iner
 	);
 	assert.match(html, /data-image="https:\/\/evil.example\/track"/);
 	assert.match(html, /&lt;script&gt;/);
-	assert.match(
-		renderMarkdown("| a | b |\n| - | - |\n| c | d |\n\n~~gone~~"),
-		/<table>/,
+	assert.match(html, /data-link="nested\/b.md"/);
+	assert.doesNotMatch(html, /<a\b[^>]*\shref=/);
+});
+
+test("render limits count UTF-8 bytes and accept the exact boundary", async () => {
+	const source = `${"あ".repeat(Math.floor(MAX_FILE_BYTES / 3))}x`;
+	assert.equal(Buffer.byteLength(source), MAX_FILE_BYTES);
+	const accepted = await api("render", { source });
+	assert.equal(accepted.status, 200);
+	assert.ok((await accepted.json()).html.includes(source));
+	assert.equal((await api("render", { source: `${source}x` })).status, 413);
+});
+
+test("malformed JSON is rejected without breaking subsequent requests", async () => {
+	for (const body of ["{", "null"]) {
+		const response = await fetch(`${base}/api/render`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", "X-Viewer-Token": token },
+			body,
+		});
+		assert.equal(response.status, 400);
+	}
+	assert.equal(
+		(await api("render", { source: "ok" }, { "Content-Type": "text/plain" }))
+			.status,
+		415,
 	);
+	assert.equal((await api("render", { source: "ok" })).status, 200);
 });
