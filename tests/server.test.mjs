@@ -332,6 +332,40 @@ test("Markdown escapes active HTML, unsafe links and code info; images stay iner
 	assert.doesNotMatch(html, /<a\b[^>]*\shref=/);
 });
 
+test("Markdown hides HTML comments without hiding code examples or allowing raw HTML", () => {
+	const html = renderMarkdown(
+		"<!-- 作業用本文 -->\n\n表示する本文 <!-- 非表示 --> 続き\n\n<!-- 複数行\n\n非表示の段落\n-->\n\n`<!-- コード -->`\n\n```md\n<!-- フェンス内 -->\n```\n\n\\<!-- エスケープ -->\n\n<script>alert(1)</script>",
+	);
+	assert.match(html, /<p>表示する本文 {2}続き<\/p>/);
+	assert.doesNotMatch(html, /作業用本文|非表示|非表示の段落/);
+	assert.match(html, /<code>&lt;!-- コード --&gt;<\/code>/);
+	assert.match(html, /&lt;!-- フェンス内 --&gt;/);
+	assert.match(html, /&lt;!-- エスケープ --&gt;/);
+	assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+	assert.doesNotMatch(html, /<script>/);
+	assert.equal(
+		renderMarkdown("<!-- 下書き\n\n非表示の段落\n--> 続き"),
+		"<p>続き</p>\n",
+	);
+});
+
+test("raw HTML requires opt-in and renders details while omitting comments", () => {
+	const source =
+		"<!-- 作業用本文 -->\n\n<details>\n<summary>詳細</summary>\n\n**本文**\n\n</details>";
+	const safe = renderMarkdown(source);
+	const trusted = renderMarkdown(source, { allowHtml: true });
+	assert.match(safe, /&lt;details&gt;/);
+	assert.doesNotMatch(safe, /作業用本文/);
+	assert.match(trusted, /<details>/);
+	assert.match(trusted, /<summary>詳細<\/summary>/);
+	assert.match(trusted, /<strong>本文<\/strong>/);
+	assert.doesNotMatch(trusted, /作業用本文/);
+	assert.equal(
+		renderMarkdown("<!-- 下書き\n\n非表示\n--> 続き", { allowHtml: true }),
+		"<p>続き</p>\n",
+	);
+});
+
 test("render limits count UTF-8 bytes and accept the exact boundary", async () => {
 	const source = `${"あ".repeat(Math.floor(MAX_FILE_BYTES / 3))}x`;
 	assert.equal(Buffer.byteLength(source), MAX_FILE_BYTES);

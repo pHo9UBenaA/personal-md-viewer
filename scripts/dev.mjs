@@ -120,7 +120,9 @@ async function defaultPort(preferred, exclude) {
 	return port;
 }
 async function initialArgs() {
-	if (args.some((arg) => arg !== "--recursive")) return args;
+	const explicitPaths = args.filter(
+		(arg) => arg !== "--recursive" && arg !== "--allow-html",
+	);
 	let source;
 	try {
 		source = await readFile(
@@ -137,22 +139,26 @@ async function initialArgs() {
 		typeof config !== "object" ||
 		!Array.isArray(config.paths) ||
 		config.paths.some((path) => typeof path !== "string" || !path.trim()) ||
-		(config.recursive !== undefined && typeof config.recursive !== "boolean")
+		(config.recursive !== undefined && typeof config.recursive !== "boolean") ||
+		(config.allowHtml !== undefined && typeof config.allowHtml !== "boolean")
 	)
 		throw new Error(
-			"dev.local.json は paths (文字列配列) と任意の recursive (真偽値) を指定してください。",
+			"dev.local.json は paths (文字列配列) と任意の recursive / allowHtml (真偽値) を指定してください。",
 		);
 	return [
 		...(config.recursive && !args.includes("--recursive")
 			? ["--recursive"]
 			: []),
+		...(config.allowHtml && !args.includes("--allow-html")
+			? ["--allow-html"]
+			: []),
 		...args,
-		...config.paths,
+		...(explicitPaths.length === 0 ? config.paths : []),
 	];
 }
 if (args.includes("--help") || args.includes("-h")) {
 	console.log(
-		"Usage: pnpm dev [--recursive] [file.md | directory ...]\nUses ports 8080 and 3100 when available; otherwise selects free ports. DEV_PORT and DEV_BACKEND_PORT override them.\nStarts Caddy and a watched reader on loopback without sudo. Ctrl+C stops both.",
+		"Usage: pnpm dev [--recursive] [--allow-html] [file.md | directory ...]\n--allow-html renders raw HTML in trusted Markdown. Uses ports 8080 and 3100 when available; otherwise selects free ports. DEV_PORT and DEV_BACKEND_PORT override them.\nStarts Caddy and a watched reader on loopback without sudo. Ctrl+C stops both.",
 	);
 } else {
 	const children = new Set();

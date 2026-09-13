@@ -8,6 +8,8 @@
 
 ```sh
 pnpm dev
+# 信頼できる Markdown 内の <details> などの HTML を有効にする場合
+pnpm dev --allow-html
 # 必要なら、起動時に開くパスも指定できます
 pnpm dev "/Users/you/Documents/notes"
 pnpm dev "/Users/you/Documents/notes-one" "/Users/you/Documents/notes-two"
@@ -18,11 +20,14 @@ pnpm dev "/Users/you/Documents/notes-one" "/Users/you/Documents/notes-two"
 ```json
 {
   "paths": ["/Users/you/Documents/notes-one", "/Users/you/Documents/notes-two"],
-  "recursive": false
+  "recursive": false,
+  "allowHtml": false
 }
 ```
 
-`paths` はフォルダー・Markdown ファイルを混在させられます。起動時にパスを引数で指定すると、その引数が設定ファイルより優先されます。`--recursive` を指定するか、設定の `recursive` を `true` にすると、サブフォルダーも読み込みます。
+`paths` はフォルダー・Markdown ファイルを混在させられます。起動時にパスを引数で指定すると、そのパスを設定ファイルの `paths` より優先します。`recursive: true` は `--recursive`、`allowHtml: true` は `--allow-html` と同じです。どちらの設定も、起動時にパスを指定した場合に有効です。
+
+通常は生 HTML を文字として表示し、`<!-- ... -->` のコメントだけ非表示にします。`--allow-html` を付けると `<details>` / `<summary>` などのタグを描画します。`pnpm start --allow-html` でも同じです。この設定は起動中に開くすべての Markdown に適用されるため、信頼できるファイルだけを開いてください。生 HTML のリンクや属性は Markdown のリンク・画像向けの無効化処理を通りません。本文の CSP はスクリプト・フォーム・外部リソースを引き続き制限しますが、HTML の全機能を安全化する仕組みではありません。
 
 通常の URL は `http://md.localhost:8080` です。`pnpm dev` を再実行すると、このスクリプトが以前起動した Caddy と閲覧サーバーを終了してから起動します。他のアプリがポートを使用中なら空きポートに切り替わるため、表示された `Dev ready:` の URL を開いてください。sudo 不要で Caddy と閲覧サーバーを起動し、Ctrl+C で両方を終了します。`src` / `public` の変更で閲覧サーバーを再起動するので、ブラウザーを再読み込みしてください。既存の Caddy 設定や常駐サービスは変更しません。
 
@@ -106,7 +111,7 @@ Caddy はループバックだけで待ち受け、証明書の発行や OS の�
 
 ファイルを書き換える API やシンボリックリンクを作成する機能はありません。Host / Origin / Fetch Metadata の検査と起動ごとのランダムトークンで、別サイトからのファイル操作を拒否します。実パスによる参照範囲の検査、通常ファイルの確認、サイズ制限、固定した静的ファイルの配信を行います。
 
-Markdown は `html: false` で処理し、リンク・画像 URL はいったん無効な属性に移します。本文 iframe は専用 CSP でスクリプト・フォーム・外部リソースを禁止します。WebKit で親ページが登録したイベントを使うため sandbox に `allow-scripts` と `allow-same-origin` を含めていますが、本文 CSP の `script-src 'none'` は維持します。この CSP を緩めないでください。
+Markdown は通常 `html: false` で処理し、HTML コメントだけ表示から除外します。コード内のコメント表記はそのまま表示します。Markdown のリンク・画像 URL はいったん無効な属性に移します。本文 iframe は専用 CSP でスクリプト・フォーム・外部リソースを禁止します。WebKit で親ページが登録したイベントを使うため sandbox に `allow-scripts` と `allow-same-origin` を含めていますが、本文 CSP の `script-src 'none'` は維持します。この CSP を緩めないでください。
 
 ローカルの本人利用向けです。同じ OS ユーザー権限で動く悪意あるプロセス、ブラウザー拡張、OS 自体の侵害を防ぐ仕組みではありません。リバースプロキシもローカル限定で使ってください。外部公開は対象外です。脆弱性やバグが一切ないことを保証するものではありません。
 

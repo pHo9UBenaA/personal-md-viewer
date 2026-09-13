@@ -3,7 +3,7 @@ import { createViewerServer } from "./server.mjs";
 const args = process.argv.slice(2).filter((arg) => arg !== "--");
 if (args.includes("--help") || args.includes("-h")) {
 	console.log(
-		"Usage: pnpm start [--recursive] [file.md | directory ...]\n\nOpen the printed local URL. PORT defaults to 3000; PORT=0 selects a free port.",
+		"Usage: pnpm start [--recursive] [--allow-html] [file.md | directory ...]\n\n--allow-html renders raw HTML in trusted Markdown. Open the printed local URL. PORT defaults to 3000; PORT=0 selects a free port.",
 	);
 } else {
 	try {
@@ -11,8 +11,11 @@ if (args.includes("--help") || args.includes("-h")) {
 		if (!Number.isInteger(port) || port < 0 || port > 65535)
 			throw new Error("PORT は 0〜65535 の整数にしてください。");
 		const server = await createViewerServer({
-			initialPaths: args.filter((arg) => arg !== "--recursive"),
+			initialPaths: args.filter(
+				(arg) => arg !== "--recursive" && arg !== "--allow-html",
+			),
 			recursive: args.includes("--recursive"),
+			allowHtml: args.includes("--allow-html"),
 			publicOrigin: process.env.VIEWER_ORIGIN,
 		});
 		server.on("error", (error) => {

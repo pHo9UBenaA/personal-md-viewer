@@ -40,6 +40,7 @@ export async function createViewerServer({
 	initialPaths = [],
 	recursive = false,
 	publicOrigin,
+	allowHtml = false,
 } = {}) {
 	let allowedOrigin;
 	if (publicOrigin) {
@@ -154,14 +155,19 @@ export async function createViewerServer({
 						});
 					case "/api/read": {
 						const doc = await library.read(body.id);
-						return send(200, { ...doc, html: renderMarkdown(doc.source) });
+						return send(200, {
+							...doc,
+							html: renderMarkdown(doc.source, { allowHtml }),
+						});
 					}
 					case "/api/render": {
 						if (typeof body.source !== "string")
 							throw new ViewerError("Markdown が必要です。");
 						if (Buffer.byteLength(body.source) > MAX_FILE_BYTES)
 							throw new ViewerError("Markdown の上限は 1 MiB です。", 413);
-						return send(200, { html: renderMarkdown(body.source) });
+						return send(200, {
+							html: renderMarkdown(body.source, { allowHtml }),
+						});
 					}
 					case "/api/related":
 						return send(200, {

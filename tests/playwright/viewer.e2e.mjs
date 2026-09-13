@@ -1,9 +1,37 @@
+import { once } from "node:events";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
+import { createViewerServer } from "../../src/server.mjs";
 
 let folder;
+test("trusted HTML opens details without executing scripts", async ({
+	page,
+}) => {
+	const server = await createViewerServer({ allowHtml: true });
+	server.listen(0, "127.0.0.1");
+	await once(server, "listening");
+	try {
+		await page.goto(`http://127.0.0.1:${server.address().port}`);
+		await page.locator("#files").setInputFiles({
+			name: "details.md",
+			mimeType: "text/markdown",
+			buffer: Buffer.from(
+				"<!-- 作業用本文 -->\n\n<details>\n<summary>詳細</summary>\n\n**本文**\n\n</details>\n<script>parent.__rawHtmlRan = true</script>",
+			),
+		});
+		const details = page.frameLocator("#content").locator("details");
+		await expect(details.locator("summary")).toBeVisible();
+		await expect(details.locator("strong")).toBeHidden();
+		await details.locator("summary").click();
+		await expect(details.locator("strong")).toBeVisible();
+		expect(await page.evaluate(() => window.__rawHtmlRan)).toBeUndefined();
+	} finally {
+		server.closeAllConnections();
+		await new Promise((resolve) => server.close(resolve));
+	}
+});
 test("imports over 200 documents lazily and accepts a drop onto the reader", async ({
 	page,
 }) => {
