@@ -1,8 +1,40 @@
 import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const args = process.argv.slice(2).filter((arg) => arg !== "--");
+async function initialArgs() {
+	if (args.some((arg) => arg !== "--recursive")) return args;
+	let source;
+	try {
+		source = await readFile(
+			new URL("../dev.local.json", import.meta.url),
+			"utf8",
+		);
+	} catch (error) {
+		if (error.code === "ENOENT") return args;
+		throw error;
+	}
+	const config = JSON.parse(source);
+	if (
+		!config ||
+		typeof config !== "object" ||
+		!Array.isArray(config.paths) ||
+		config.paths.some((path) => typeof path !== "string" || !path.trim()) ||
+		(config.recursive !== undefined && typeof config.recursive !== "boolean")
+	)
+		throw new Error(
+			"dev.local.json は paths (文字列配列) と任意の recursive (真偽値) を指定してください。",
+		);
+	return [
+		...(config.recursive && !args.includes("--recursive")
+			? ["--recursive"]
+			: []),
+		...args,
+		...config.paths,
+	];
+}
 if (args.includes("--help") || args.includes("-h")) {
 	console.log(
 		"Usage: pnpm dev [--recursive] [file.md | directory ...]\nDEV_PORT=8080 DEV_BACKEND_PORT=3100\nStarts Caddy and a watched reader on loopback without sudo. Ctrl+C stops both.",
@@ -79,6 +111,7 @@ if (args.includes("--help") || args.includes("-h")) {
 	process.on("SIGINT", () => stop(0));
 	process.on("SIGTERM", () => stop(0));
 	try {
+		const viewerArgs = await initialArgs();
 		const port = Number(process.env.DEV_PORT ?? 8080);
 		const backend = Number(process.env.DEV_BACKEND_PORT ?? 3100);
 		if (
@@ -106,7 +139,7 @@ if (args.includes("--help") || args.includes("-h")) {
 				"--watch-path=src",
 				"--watch-path=public",
 				"src/index.mjs",
-				...args,
+				...viewerArgs,
 			],
 			{
 				env: { ...process.env, PORT: String(backend), VIEWER_ORIGIN: origin },

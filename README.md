@@ -10,7 +10,19 @@
 pnpm dev
 # 必要なら、起動時に開くパスも指定できます
 pnpm dev "/Users/you/Documents/notes"
+pnpm dev "/Users/you/Documents/notes-one" "/Users/you/Documents/notes-two"
 ```
+
+複数のパスを引数で指定できます。引数なしの `pnpm dev` で毎回同じパスを開くには、リポジトリ直下に Git の対象外となる `dev.local.json` を作成します。
+
+```json
+{
+  "paths": ["/Users/you/Documents/notes-one", "/Users/you/Documents/notes-two"],
+  "recursive": false
+}
+```
+
+`paths` はフォルダー・Markdown ファイルを混在させられます。起動時にパスを引数で指定すると、その引数が設定ファイルより優先されます。`--recursive` を指定するか、設定の `recursive` を `true` にすると、サブフォルダーも読み込みます。
 
 URL は `http://md.localhost:8080` です。sudo 不要で Caddy と閲覧サーバーを起動し、Ctrl+C で両方を終了します。`src` / `public` の変更で閲覧サーバーを再起動するので、ブラウザーを再読み込みしてください。既存の Caddy 設定や常駐サービスは変更しません。
 
