@@ -485,6 +485,42 @@ test("reload and history navigation reopen path tabs, while imports need selecti
 		}),
 	).toBeVisible();
 });
+test("initial folders remain in the tree after restoring tabs on reload", async ({
+	page,
+}) => {
+	const root = await mkdtemp(join(tmpdir(), "viewer-initial-folders-"));
+	const first = join(root, "11_reading_group");
+	const second = join(root, "12_session_synthesis");
+	await mkdir(first);
+	await mkdir(second);
+	await writeFile(join(first, "A.md"), "# First note");
+	await writeFile(join(first, "B.md"), "# Unopened note");
+	await writeFile(join(second, "C.md"), "# Selected note");
+	const server = await createViewerServer({ initialPaths: [first, second] });
+	server.listen(0, "127.0.0.1");
+	await once(server, "listening");
+	try {
+		await page.goto(`http://127.0.0.1:${server.address().port}`);
+		await expect(page.locator("#file-list .tree-file")).toHaveCount(3);
+		await page.getByRole("treeitem", { name: "C.md", exact: true }).click();
+		await page.reload();
+		await expect(page.locator("#file-list .tree-file")).toHaveCount(3);
+		await expect(page.getByRole("tab", { name: "C.md" })).toHaveAttribute(
+			"aria-selected",
+			"true",
+		);
+		await page.getByRole("treeitem", { name: "B.md", exact: true }).click();
+		await expect(
+			page.frameLocator("#content").getByRole("heading", {
+				name: "Unopened note",
+			}),
+		).toBeVisible();
+	} finally {
+		server.closeAllConnections();
+		await new Promise((resolve) => server.close(resolve));
+		await rm(root, { recursive: true, force: true });
+	}
+});
 test("an imported-only history entry explains why it cannot survive reload", async ({
 	page,
 }) => {

@@ -936,6 +936,12 @@ document.addEventListener("drop", handleDrop);
 action(async () => {
 	if (savedView) {
 		await restoreView(savedView);
+		const data = await api("initial");
+		for (const doc of data.documents) {
+			const key = keyFor(doc);
+			if (!available.has(key)) available.set(key, doc);
+		}
+		drawTabs();
 		return;
 	}
 	const revision = navigationRevision;
