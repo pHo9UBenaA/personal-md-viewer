@@ -2,5 +2,6 @@ node_modules/
 .pnpm-store/
 test-results/
 dev.local.json
+.dev-processes.json*
 TEST_REVIEW.md
 AGENTS.md
