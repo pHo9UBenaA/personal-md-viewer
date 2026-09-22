@@ -1,4 +1,5 @@
 import MarkdownIt from "markdown-it";
+import { renderHighlightTags } from "./highlights.mjs";
 
 function createParser(allowHtml) {
 	const parser = new MarkdownIt({
@@ -73,4 +74,4 @@ function createParser(allowHtml) {
 const safeParser = createParser(false);
 const htmlParser = createParser(true);
 export const renderMarkdown = (source, { allowHtml = false } = {}) =>
-	(allowHtml ? htmlParser : safeParser).render(source);
+	renderHighlightTags((allowHtml ? htmlParser : safeParser).render(source));

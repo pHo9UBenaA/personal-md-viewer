@@ -100,6 +100,33 @@ hr {
 	overflow-wrap: anywhere;
 	white-space: pre-wrap;
 }
+mark[data-mdv-color] {
+	padding: 0 0.08em;
+	color: inherit;
+	background: linear-gradient(
+		to bottom,
+		transparent 12%,
+		var(--marker-color) 12%,
+		var(--marker-color) 90%,
+		transparent 90%
+	);
+	border-radius: 0.12em;
+}
+mark[data-mdv-color="green"] {
+	--marker-color: #72c99199;
+}
+mark[data-mdv-color="yellow"] {
+	--marker-color: #f4d35eaa;
+}
+mark[data-mdv-color="orange"] {
+	--marker-color: #f4a261aa;
+}
+mark[data-mdv-color="pink"] {
+	--marker-color: #ef88a8a8;
+}
+mark[data-mdv-color="blue"] {
+	--marker-color: #6bb7d6a8;
+}
 li + li {
 	margin-top: 0.25em;
 }

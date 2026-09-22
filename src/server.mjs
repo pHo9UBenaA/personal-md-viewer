@@ -169,6 +169,18 @@ export async function createViewerServer({
 							html: renderMarkdown(body.source, { allowHtml }),
 						});
 					}
+					case "/api/highlight": {
+						const doc = await library.highlight(
+							body.id,
+							body.color,
+							body.ranges,
+							body.version,
+						);
+						return send(200, {
+							...doc,
+							html: renderMarkdown(doc.source, { allowHtml }),
+						});
+					}
 					case "/api/related":
 						return send(200, {
 							documents: [await library.related(body.id, body.href)],

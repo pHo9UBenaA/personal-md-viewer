@@ -4,6 +4,7 @@ import { once } from "node:events";
 import {
 	mkdir,
 	mkdtemp,
+	readFile,
 	realpath,
 	rm,
 	symlink,
@@ -156,6 +157,57 @@ test("changed files are read again; deletion and replaced symlinks fail safely",
 	assert.equal((await api("read", { id })).status, 404);
 	await symlink(join(root, "secret.md"), file);
 	assert.equal((await api("read", { id })).status, 403);
+});
+test("highlights update only a verified path document and reject stale selections", async () => {
+	const file = join(folder, "highlights.md");
+	await writeFile(file, "Before **important words** after.");
+	const { documents } = await (await api("open", { path: file })).json();
+	const original = await (await api("read", { id: documents[0].id })).json();
+	const start = original.source.indexOf("important words");
+	const response = await api("highlight", {
+		id: documents[0].id,
+		color: "yellow",
+		version: original.version,
+		ranges: [
+			{
+				start,
+				end: start + "important words".length,
+				text: "important words",
+			},
+		],
+	});
+	assert.equal(response.status, 200);
+	const updated = await response.json();
+	assert.match(
+		updated.html,
+		/<strong><mark data-mdv-color="yellow">important words<\/mark><\/strong>/,
+	);
+	assert.equal(
+		await readFile(file, "utf8"),
+		'Before **<mark data-mdv-color="yellow">important words</mark>** after.',
+	);
+	assert.equal(
+		(
+			await api("highlight", {
+				id: documents[0].id,
+				color: "green",
+				version: original.version,
+				ranges: [{ start, end: start + 9, text: "important" }],
+			})
+		).status,
+		409,
+	);
+	assert.equal(
+		(
+			await api("highlight", {
+				id: documents[0].id,
+				color: "purple",
+				version: updated.version,
+				ranges: [{ start: 0, end: 1, text: "B" }],
+			})
+		).status,
+		400,
+	);
 });
 test("byte limits remain while folders can exceed previous document caps", async () => {
 	const big = join(root, "big.md");
@@ -330,6 +382,15 @@ test("Markdown escapes active HTML, unsafe links and code info; images stay iner
 	assert.match(html, /&lt;script&gt;/);
 	assert.match(html, /data-link="nested\/b.md"/);
 	assert.doesNotMatch(html, /<a\b[^>]*\shref=/);
+});
+
+test("only fixed highlight tags render when raw HTML is disabled", () => {
+	const html = renderMarkdown(
+		'Plain <mark data-mdv-color="pink">marked</mark> text.\n\n<mark data-mdv-color="pink" onclick="alert(1)">unsafe</mark>',
+	);
+	assert.match(html, /<mark data-mdv-color="pink">marked<\/mark>/);
+	assert.doesNotMatch(html, /<mark[^>]+onclick=/);
+	assert.match(html, /&lt;mark data-mdv-color=&quot;pink&quot; onclick=/);
 });
 
 test("Markdown hides HTML comments without hiding code examples or allowing raw HTML", () => {

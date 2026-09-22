@@ -1,6 +1,13 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { open, opendir, realpath, stat } from "node:fs/promises";
+import {
+	open,
+	opendir,
+	realpath,
+	rename,
+	stat,
+	unlink,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import {
 	basename,
@@ -11,6 +18,7 @@ import {
 	resolve,
 	sep,
 } from "node:path";
+import { HIGHLIGHT_COLORS, highlightOpenTag } from "./highlights.mjs";
 
 export const MAX_FILE_BYTES = 1024 * 1024;
 const ignored = new Set([".git", "node_modules", ".DS_Store"]);
@@ -23,6 +31,9 @@ export const imageTypes = new Map([
 	[".webp", "image/webp"],
 	[".avif", "image/avif"],
 ]);
+
+const sourceVersion = (source) =>
+	createHash("sha256").update(source).digest("hex");
 
 export class ViewerError extends Error {
 	constructor(message, status = 400) {
@@ -217,10 +228,98 @@ export function createLibrary() {
 		},
 		async read(id) {
 			const doc = get(id);
+			const source = (await readBounded(doc.path, doc.root)).toString("utf8");
 			return {
 				...doc,
-				source: (await readBounded(doc.path, doc.root)).toString("utf8"),
+				source,
+				version: sourceVersion(source),
 			};
+		},
+		async highlight(id, color, ranges, version) {
+			if (!HIGHLIGHT_COLORS.has(color))
+				throw new ViewerError("マーカーの色が不正です。");
+			if (!Array.isArray(ranges) || ranges.length === 0)
+				throw new ViewerError("マーカーを付ける文章を選択してください。");
+			const doc = get(id);
+			const source = (await readBounded(doc.path, doc.root)).toString("utf8");
+			if (typeof version !== "string" || version !== sourceVersion(source))
+				throw new ViewerError(
+					"ファイルが更新されています。再読み込みして選択し直してください。",
+					409,
+				);
+			let previousEnd = 0;
+			const checked = ranges.map((range) => {
+				if (
+					!range ||
+					!Number.isSafeInteger(range.start) ||
+					!Number.isSafeInteger(range.end) ||
+					range.start < previousEnd ||
+					range.start < 0 ||
+					range.end <= range.start ||
+					range.end > source.length ||
+					typeof range.text !== "string" ||
+					source.slice(range.start, range.end) !== range.text
+				)
+					throw new ViewerError(
+						"選択範囲を確認できません。選択し直してください。",
+						409,
+					);
+				previousEnd = range.end;
+				return { start: range.start, end: range.end };
+			});
+			const openTag = highlightOpenTag(color);
+			let updated = source;
+			for (const range of checked.toReversed())
+				updated = `${updated.slice(0, range.start)}${openTag}${updated.slice(range.start, range.end)}</mark>${updated.slice(range.end)}`;
+			if (Buffer.byteLength(updated) > MAX_FILE_BYTES)
+				throw new ViewerError(
+					"マーカーを追加すると Markdown の上限 1 MiB を超えます。",
+					413,
+				);
+
+			const canonical = await realpath(doc.path);
+			if (!within(doc.root, canonical))
+				throw new ViewerError("選択したフォルダーの外は更新できません。", 403);
+			const details = await stat(canonical);
+			if (!details.isFile())
+				throw new ViewerError("通常のファイルを選択してください。");
+			const temporary = resolve(
+				dirname(canonical),
+				`.${basename(canonical)}.${randomUUID()}.tmp`,
+			);
+			let handle;
+			try {
+				handle = await open(
+					temporary,
+					constants.O_WRONLY |
+						constants.O_CREAT |
+						constants.O_EXCL |
+						constants.O_NOFOLLOW,
+					details.mode & 0o777,
+				);
+				await handle.writeFile(updated, "utf8");
+				await handle.sync();
+				await handle.close();
+				handle = undefined;
+				const current = await stat(canonical);
+				const currentSource = (
+					await readBounded(canonical, doc.root)
+				).toString("utf8");
+				if (
+					current.dev !== details.dev ||
+					current.ino !== details.ino ||
+					sourceVersion(currentSource) !== version
+				)
+					throw new ViewerError(
+						"ファイルが更新されています。再読み込みしてください。",
+						409,
+					);
+				await rename(temporary, canonical);
+			} finally {
+				await handle?.close().catch(() => {});
+				await unlink(temporary).catch(() => {});
+			}
+			return { ...doc, source: updated, version: sourceVersion(updated) };
 		},
 		async related(id, href) {
 			const file = await resolveRelated(id, href, "markdown");
