@@ -140,6 +140,67 @@ test("theme persists and syncs the reader and browser tabs", async ({
 	await toggle.click();
 	await expect(toggle).toHaveAttribute("aria-pressed", "true");
 });
+test("highlights can be added, recolored, and removed without leaving focus mode", async ({
+	page,
+}) => {
+	const root = await mkdtemp(join(tmpdir(), "viewer-highlights-"));
+	const file = join(root, "highlights.md");
+	const source = "# Marker test\n\nChoose **important words** now.";
+	await writeFile(file, source);
+	const server = await createViewerServer({ initialPaths: [file] });
+	server.listen(0, "127.0.0.1");
+	await once(server, "listening");
+	try {
+		await page.goto(`http://127.0.0.1:${server.address().port}`);
+		const focus = page.locator("#focus-toggle");
+		await focus.click();
+		await page
+			.frameLocator("#content")
+			.locator("strong")
+			.evaluate((element) => {
+				const range = document.createRange();
+				range.selectNodeContents(element);
+				const selection = getSelection();
+				selection.removeAllRanges();
+				selection.addRange(range);
+			});
+		const toolbar = page.getByRole("toolbar", { name: "マーカーの色" });
+		await expect(toolbar).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "マーカーを外す" }),
+		).toBeDisabled();
+		await page.getByRole("button", { name: "黄色のマーカー" }).click();
+		await expect(focus).toHaveAttribute("aria-pressed", "true");
+		const mark = page.frameLocator("#content").locator("mark");
+		await expect(mark).toHaveAttribute("data-mdv-color", "yellow");
+		expect(await readFile(file, "utf8")).toContain(
+			'<mark data-mdv-color="yellow">important words</mark>',
+		);
+
+		await mark.click();
+		await expect(toolbar).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "黄色のマーカー" }),
+		).toHaveAttribute("aria-pressed", "true");
+		await expect(
+			page.getByRole("button", { name: "マーカーを外す" }),
+		).toBeEnabled();
+		await page.getByRole("button", { name: "青のマーカー" }).click();
+		await expect(mark).toHaveAttribute("data-mdv-color", "blue");
+		await mark.click();
+		await expect(
+			page.getByRole("button", { name: "青のマーカー" }),
+		).toHaveAttribute("aria-pressed", "true");
+		await page.getByRole("button", { name: "マーカーを外す" }).click();
+		await expect(mark).toHaveCount(0);
+		await expect(focus).toHaveAttribute("aria-pressed", "true");
+		expect(await readFile(file, "utf8")).toBe(source);
+	} finally {
+		server.closeAllConnections();
+		await new Promise((resolve) => server.close(resolve));
+		await rm(root, { recursive: true, force: true });
+	}
+});
 test.beforeAll(async () => {
 	folder = await mkdtemp(join(tmpdir(), "viewer-browser-日本語-"));
 	await mkdir(join(folder, "nested"));
@@ -229,10 +290,9 @@ test("folder tabs, relative links, local images, no remote requests or HTML exec
 			name: "First document",
 		}),
 	).toBeVisible();
-	await expect(page.frameLocator("#content").locator("img")).toHaveAttribute(
-		"src",
-		/^blob:/,
-	);
+	await expect(
+		page.frameLocator("#content").getByRole("img", { name: "pixel" }),
+	).toHaveAttribute("src", /^blob:/);
 	await expect(
 		page.frameLocator("#content").locator(".image-note"),
 	).toContainText("外部画像");
@@ -625,10 +685,9 @@ test("native folder input reads file content without pretending it has absolute 
 			.frameLocator("#content")
 			.getByRole("heading", { name: "First document", exact: true }),
 	).toBeVisible();
-	await expect(page.frameLocator("#content").locator("img")).toHaveAttribute(
-		"src",
-		/^blob:/,
-	);
+	await expect(
+		page.frameLocator("#content").getByRole("img", { name: "pixel" }),
+	).toHaveAttribute("src", /^blob:/);
 	await expect(page.getByRole("button", { name: "再読み込み" })).toBeDisabled();
 	await page
 		.frameLocator("#content")

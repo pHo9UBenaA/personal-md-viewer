@@ -367,6 +367,86 @@ form > label {
 	color: var(--accent);
 	white-space: nowrap;
 }
+.highlight-toolbar {
+	display: flex;
+	flex-shrink: 0;
+	gap: 9px;
+	align-items: center;
+	justify-content: center;
+	min-height: 46px;
+	padding: 8px 16px;
+	background: var(--dialog);
+	border-bottom: 1px solid var(--border);
+	box-shadow: 0 8px 24px #0002;
+}
+.highlight-toolbar[hidden] {
+	display: none;
+}
+.highlight-toolbar > span {
+	font-size: 11px;
+	color: var(--muted);
+}
+.highlight-toolbar button {
+	position: relative;
+	width: 26px;
+	height: 26px;
+	padding: 0;
+	background: var(--highlight-color);
+	border: 2px solid color-mix(in srgb, var(--highlight-color), var(--text) 28%);
+	border-radius: 50%;
+	box-shadow: inset 0 0 0 2px
+		color-mix(in srgb, var(--highlight-color), white 22%);
+}
+.highlight-toolbar button[aria-pressed="true"]::after {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	width: 8px;
+	height: 8px;
+	content: "";
+	background: #000;
+	border: 2px solid #fff;
+	border-radius: 50%;
+	box-shadow: 0 0 0 1px #000;
+	transform: translate(-50%, -50%);
+}
+.highlight-toolbar button:hover,
+.highlight-toolbar button:focus-visible {
+	background: var(--highlight-color);
+	transform: scale(1.12);
+}
+.highlight-toolbar button[data-highlight-color="green"] {
+	--highlight-color: #72c991;
+}
+.highlight-toolbar button[data-highlight-color="yellow"] {
+	--highlight-color: #f4d35e;
+}
+.highlight-toolbar button[data-highlight-color="orange"] {
+	--highlight-color: #f4a261;
+}
+.highlight-toolbar button[data-highlight-color="pink"] {
+	--highlight-color: #ef88a8;
+}
+.highlight-toolbar button[data-highlight-color="blue"] {
+	--highlight-color: #6bb7d6;
+}
+.highlight-toolbar .highlight-remove {
+	--highlight-color: transparent;
+	font-size: 19px;
+	font-weight: 500;
+	line-height: 20px;
+	color: var(--text);
+	background: transparent;
+	border-color: var(--border);
+	box-shadow: none;
+}
+.highlight-toolbar .highlight-remove:hover,
+.highlight-toolbar .highlight-remove:focus-visible {
+	background: var(--hover);
+}
+#highlight-note:empty {
+	display: none;
+}
 iframe {
 	flex: 1;
 	width: 100%;
@@ -399,6 +479,17 @@ body.focus-mode .document-bar {
 }
 body.focus-mode .document-bar > :not(#focus-toggle) {
 	display: none;
+}
+body.focus-mode .highlight-toolbar {
+	position: absolute;
+	top: 12px;
+	left: 50%;
+	z-index: 2;
+	min-height: 42px;
+	padding: 7px 12px;
+	border: 1px solid var(--border);
+	border-radius: 24px;
+	transform: translateX(-50%);
 }
 body.focus-mode #focus-toggle {
 	padding: 7px 10px;

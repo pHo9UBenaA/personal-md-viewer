@@ -18,6 +18,7 @@ let blobUrls = [];
 let paletteIndex = 0;
 let paletteMatches = [];
 let importNumber = 0;
+let highlightSelection = null;
 const collapsedFolders = new Set();
 const filterCollapsedFolders = new Set();
 const MAX_BYTES = 1024 * 1024;
@@ -348,6 +349,8 @@ function drawTabs() {
 }
 
 function clearReader() {
+	highlightSelection = null;
+	$("highlight-toolbar").hidden = true;
 	for (const url of blobUrls) URL.revokeObjectURL(url);
 	blobUrls = [];
 	$("outline").replaceChildren();
@@ -359,6 +362,179 @@ function clearReader() {
 		"allow-same-origin allow-popups allow-popups-to-escape-sandbox",
 	);
 	$("content").replaceWith(frame);
+}
+
+function mapSourceText(frameDocument, source) {
+	const positions = new WeakMap();
+	const nodes = [];
+	let cursor = 0;
+	const walker = frameDocument.createTreeWalker(
+		frameDocument.body,
+		NodeFilter.SHOW_TEXT,
+	);
+	for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+		nodes.push(node);
+		if (!node.data || node.parentElement?.closest("pre, code, script, style"))
+			continue;
+		const start = source.indexOf(node.data, cursor);
+		if (start < 0) continue;
+		const escaped = start > 0 && source[start - 1] === "\\";
+		const entity = source
+			.slice(start)
+			.match(/^&(?:#[0-9]{1,7}|#x[a-f0-9]{1,6}|[a-z][a-z0-9]{1,31});/i);
+		cursor = start + node.data.length;
+		if (escaped || (entity && entity[0] !== node.data)) continue;
+		positions.set(node, { start, end: cursor });
+	}
+	return { nodes, positions };
+}
+
+function sourceRangesForSelection(selection, mapping, source) {
+	if (!selection || selection.isCollapsed || selection.rangeCount !== 1)
+		return null;
+	const range = selection.getRangeAt(0);
+	function textBoundary(container, offset, start) {
+		if (container.nodeType === Node.TEXT_NODE)
+			return { node: container, offset };
+		if (container.nodeType !== Node.ELEMENT_NODE) return null;
+		let candidate = container.childNodes[start ? offset : offset - 1];
+		while (candidate && candidate.nodeType !== Node.TEXT_NODE) {
+			candidate = start ? candidate.firstChild : candidate.lastChild;
+		}
+		return candidate
+			? { node: candidate, offset: start ? 0 : candidate.data.length }
+			: null;
+	}
+	const start = textBoundary(range.startContainer, range.startOffset, true);
+	const end = textBoundary(range.endContainer, range.endOffset, false);
+	if (!start || !end) return null;
+	const startIndex = mapping.nodes.indexOf(start.node);
+	const endIndex = mapping.nodes.indexOf(end.node);
+	if (startIndex < 0 || endIndex < startIndex) return null;
+	const ranges = [];
+	for (let index = startIndex; index <= endIndex; index++) {
+		const node = mapping.nodes[index];
+		const from = index === startIndex ? start.offset : 0;
+		const to = index === endIndex ? end.offset : node.data.length;
+		if (to <= from) continue;
+		const position = mapping.positions.get(node);
+		if (!position) return null;
+		const sourceStart = position.start + from;
+		const sourceEnd = position.start + to;
+		const text = source.slice(sourceStart, sourceEnd);
+		if (!text || text !== node.data.slice(from, to)) return null;
+		ranges.push({ start: sourceStart, end: sourceEnd, text });
+	}
+	if (!ranges.length) return null;
+	const marks = [
+		...range.startContainer.ownerDocument.querySelectorAll(
+			"mark[data-mdv-color]",
+		),
+	].filter((mark) => range.intersectsNode(mark));
+	if (!marks.length) return { ranges, marker: null };
+	const startMark = start.node.parentElement?.closest("mark[data-mdv-color]");
+	const endMark = end.node.parentElement?.closest("mark[data-mdv-color]");
+	if (marks.length !== 1 || !startMark || startMark !== endMark) return null;
+	const color = startMark.dataset.mdvColor;
+	const openTag = `<mark data-mdv-color="${color}">`;
+	const first = ranges[0].start;
+	const last = ranges.at(-1).end;
+	const markerStart = source.lastIndexOf(openTag, first);
+	const closeStart = source.indexOf("</mark>", last);
+	if (
+		markerStart < 0 ||
+		closeStart < last ||
+		source.slice(markerStart + openTag.length, first).includes("</mark>")
+	)
+		return null;
+	return {
+		ranges,
+		marker: { start: markerStart, end: closeStart + 7, color },
+	};
+}
+
+function watchHighlightSelection(frameDocument, doc, revision) {
+	const mapping = mapSourceText(frameDocument, doc.source);
+	const update = () => {
+		if (revision !== generation || showSource) return;
+		const selected = sourceRangesForSelection(
+			frameDocument.getSelection(),
+			mapping,
+			doc.source,
+		);
+		if (!selected) {
+			highlightSelection = null;
+			$("highlight-toolbar").hidden = true;
+			return;
+		}
+		highlightSelection = { key: keyFor(doc), revision, ...selected };
+		$("highlight-toolbar").hidden = false;
+		$("highlight-note").textContent = doc.file
+			? "パスで開いたファイルのみ保存できます"
+			: "";
+		for (const button of $("highlight-toolbar").querySelectorAll(
+			"[data-highlight-color]",
+		)) {
+			button.disabled = Boolean(doc.file);
+			button.setAttribute(
+				"aria-pressed",
+				String(button.dataset.highlightColor === selected.marker?.color),
+			);
+		}
+		$("highlight-remove").disabled = Boolean(doc.file || !selected.marker);
+	};
+	frameDocument.addEventListener("selectionchange", update);
+	frameDocument.addEventListener("mouseup", update);
+	frameDocument.addEventListener("keyup", update);
+	frameDocument.addEventListener("click", (event) => {
+		const mark = event.target.closest?.("mark[data-mdv-color]");
+		const selection = frameDocument.getSelection();
+		if (!mark || mark.closest("a") || !selection?.isCollapsed) return;
+		const range = frameDocument.createRange();
+		range.selectNodeContents(mark);
+		selection.removeAllRanges();
+		selection.addRange(range);
+		update();
+	});
+}
+
+async function applyHighlight(color) {
+	const selected = highlightSelection;
+	const doc = selected && tabs.get(selected.key);
+	if (
+		!doc ||
+		doc.file ||
+		selected.revision !== generation ||
+		selected.key !== active
+	)
+		throw new Error("文章を選択し直してください。");
+	const scrollTop = $("content").contentWindow?.scrollY ?? 0;
+	const mode = selected.marker ? (color ? "recolor" : "remove") : "add";
+	if (!color && !selected.marker)
+		throw new Error("外すマーカーを選択してください。");
+	if (mode === "recolor" && color === selected.marker.color) {
+		status("この色が選択されています。");
+		return;
+	}
+	const updated = await api("highlight", {
+		id: doc.id,
+		mode,
+		color,
+		ranges: mode === "add" ? selected.ranges : undefined,
+		marker: selected.marker,
+		version: doc.version,
+	});
+	Object.assign(doc, updated, { loaded: true });
+	highlightSelection = null;
+	$("highlight-toolbar").hidden = true;
+	await activate(active, undefined, true, scrollTop);
+	status(
+		mode === "remove"
+			? "マーカーを外しました。"
+			: mode === "recolor"
+				? "マーカーの色を変更しました。"
+				: "マーカーを保存しました。",
+	);
 }
 
 function closeTab(key) {
@@ -555,7 +731,7 @@ async function decorate(frameDocument, doc, revision, hash) {
 	}
 }
 
-async function activate(key, hash, record = true) {
+async function activate(key, hash, record = true, scrollTop = 0) {
 	const doc = available.get(key);
 	if (!doc) return;
 	tabs.set(key, doc);
@@ -618,10 +794,13 @@ async function activate(key, hash, record = true) {
 				child.addEventListener("keydown", shortcuts);
 				child.addEventListener("dragover", handleDragOver);
 				child.addEventListener("drop", handleDrop);
-				if (!showSource)
+				if (!showSource) {
+					watchHighlightSelection(child, doc, revision);
 					decorate(child, doc, revision, hash).catch((error) =>
 						status(error.message, true),
 					);
+				}
+				if (scrollTop) frame.contentWindow.scrollTo(0, scrollTop);
 			}
 		};
 		// WebKit needs allow-scripts for parent-installed event listeners. A stricter
@@ -861,6 +1040,15 @@ $("source-toggle").addEventListener("click", () => {
 	$("source-toggle").setAttribute("aria-pressed", String(showSource));
 	$("source-toggle").textContent = showSource ? "プレビュー" : "ソース";
 	if (active) activate(active);
+});
+$("highlight-toolbar").addEventListener("click", (event) => {
+	if (event.target.closest("#highlight-remove")) {
+		action(() => applyHighlight(null));
+		return;
+	}
+	const color = event.target.closest("[data-highlight-color]")?.dataset
+		.highlightColor;
+	if (color) action(() => applyHighlight(color));
 });
 $("tabs").addEventListener("keydown", (event) => {
 	const keys = [...tabs.keys()];

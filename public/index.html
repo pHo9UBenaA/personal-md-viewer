@@ -42,7 +42,7 @@
       <section id="empty">
         <p class="eyebrow">LOCAL MARKDOWN READER</p>
         <h1>パスから、すぐ読む。</h1>
-        <p>Markdown やフォルダーを開くと、ここにタブが並びます。<br>ファイルは編集しません。</p>
+        <p>Markdown やフォルダーを開くと、ここにタブが並びます。<br>本文は編集せず、選択した文章にマーカーを保存できます。</p>
         <form id="open-form">
           <label for="path">ファイル・フォルダーのパス</label>
           <div class="path-row"><input id="path" type="text" placeholder="/Users/you/Documents/notes" spellcheck="false" autocomplete="off" required><button type="submit">開く</button></div>
@@ -52,6 +52,16 @@
       </section>
       <section id="reader" hidden>
         <div class="document-bar"><span id="document-path"></span><a id="separate-tab" target="_blank" rel="noopener noreferrer" hidden>別タブで開く</a><button id="reload" type="button">再読み込み</button><button id="source-toggle" type="button" aria-pressed="false">ソース</button><button id="focus-toggle" type="button" aria-pressed="false" title="全画面表示 (⌘⇧F / Ctrl+Shift+F)">全画面表示</button></div>
+        <div id="highlight-toolbar" class="highlight-toolbar" role="toolbar" aria-label="マーカーの色" hidden>
+          <span>マーカー</span>
+          <button type="button" data-highlight-color="green" aria-label="緑のマーカー" aria-pressed="false" title="緑"></button>
+          <button type="button" data-highlight-color="yellow" aria-label="黄色のマーカー" aria-pressed="false" title="黄色"></button>
+          <button type="button" data-highlight-color="orange" aria-label="オレンジのマーカー" aria-pressed="false" title="オレンジ"></button>
+          <button type="button" data-highlight-color="pink" aria-label="ピンクのマーカー" aria-pressed="false" title="ピンク"></button>
+          <button type="button" data-highlight-color="blue" aria-label="青のマーカー" aria-pressed="false" title="青"></button>
+          <button type="button" id="highlight-remove" class="highlight-remove" aria-label="マーカーを外す" title="マーカーを外す">×</button>
+          <span id="highlight-note"></span>
+        </div>
         <iframe id="content" title="Markdown 本文" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>
       </section>
     </main>
