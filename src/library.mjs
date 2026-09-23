@@ -235,11 +235,7 @@ export function createLibrary() {
 				version: sourceVersion(source),
 			};
 		},
-		async highlight(id, color, ranges, version) {
-			if (!HIGHLIGHT_COLORS.has(color))
-				throw new ViewerError("マーカーの色が不正です。");
-			if (!Array.isArray(ranges) || ranges.length === 0)
-				throw new ViewerError("マーカーを付ける文章を選択してください。");
+		async highlight(id, { mode, color, ranges, marker, version }, validate) {
 			const doc = get(id);
 			const source = (await readBounded(doc.path, doc.root)).toString("utf8");
 			if (typeof version !== "string" || version !== sourceVersion(source))
@@ -247,34 +243,76 @@ export function createLibrary() {
 					"ファイルが更新されています。再読み込みして選択し直してください。",
 					409,
 				);
-			let previousEnd = 0;
-			const checked = ranges.map((range) => {
+			let updated = source;
+			if (mode === "add") {
+				if (!HIGHLIGHT_COLORS.has(color))
+					throw new ViewerError("マーカーの色が不正です。");
+				if (!Array.isArray(ranges) || ranges.length === 0)
+					throw new ViewerError("マーカーを付ける文章を選択してください。");
+				let previousEnd = 0;
+				const checked = ranges.map((range) => {
+					if (
+						!range ||
+						!Number.isSafeInteger(range.start) ||
+						!Number.isSafeInteger(range.end) ||
+						range.start < previousEnd ||
+						range.start < 0 ||
+						range.end <= range.start ||
+						range.end > source.length ||
+						typeof range.text !== "string" ||
+						source.slice(range.start, range.end) !== range.text
+					)
+						throw new ViewerError(
+							"選択範囲を確認できません。選択し直してください。",
+							409,
+						);
+					previousEnd = range.end;
+					return { start: range.start, end: range.end };
+				});
+				const openTag = highlightOpenTag(color);
+				for (const range of checked.toReversed())
+					updated = `${updated.slice(0, range.start)}${openTag}${updated.slice(range.start, range.end)}</mark>${updated.slice(range.end)}`;
+			} else if (mode === "recolor" || mode === "remove") {
 				if (
-					!range ||
-					!Number.isSafeInteger(range.start) ||
-					!Number.isSafeInteger(range.end) ||
-					range.start < previousEnd ||
-					range.start < 0 ||
-					range.end <= range.start ||
-					range.end > source.length ||
-					typeof range.text !== "string" ||
-					source.slice(range.start, range.end) !== range.text
+					!marker ||
+					!Number.isSafeInteger(marker.start) ||
+					!Number.isSafeInteger(marker.end) ||
+					marker.start < 0 ||
+					marker.end <= marker.start ||
+					marker.end > source.length ||
+					!HIGHLIGHT_COLORS.has(marker.color) ||
+					(mode === "recolor" && !HIGHLIGHT_COLORS.has(color))
+				)
+					throw new ViewerError("マーカーの範囲または色が不正です。");
+				const currentOpen = highlightOpenTag(marker.color);
+				const marked = source.slice(marker.start, marker.end);
+				if (
+					!marked.startsWith(currentOpen) ||
+					!marked.endsWith("</mark>") ||
+					marked.slice(currentOpen.length, -7).includes("<mark data-mdv-color=")
 				)
 					throw new ViewerError(
-						"選択範囲を確認できません。選択し直してください。",
+						"現在のマーカーを確認できません。選択し直してください。",
 						409,
 					);
-				previousEnd = range.end;
-				return { start: range.start, end: range.end };
-			});
-			const openTag = highlightOpenTag(color);
-			let updated = source;
-			for (const range of checked.toReversed())
-				updated = `${updated.slice(0, range.start)}${openTag}${updated.slice(range.start, range.end)}</mark>${updated.slice(range.end)}`;
+				const content = marked.slice(currentOpen.length, -7);
+				const replacement =
+					mode === "remove"
+						? content
+						: `${highlightOpenTag(color)}${content}</mark>`;
+				updated = `${source.slice(0, marker.start)}${replacement}${source.slice(marker.end)}`;
+			} else {
+				throw new ViewerError("マーカー操作が不正です。");
+			}
 			if (Buffer.byteLength(updated) > MAX_FILE_BYTES)
 				throw new ViewerError(
 					"マーカーを追加すると Markdown の上限 1 MiB を超えます。",
 					413,
+				);
+			if (typeof validate === "function" && !validate(source, updated))
+				throw new ViewerError(
+					"Markdown の構造を保ったまま選択範囲を保存できません。選択範囲を狭めてください。",
+					409,
 				);
 
 			const canonical = await realpath(doc.path);
@@ -302,9 +340,9 @@ export function createLibrary() {
 				await handle.close();
 				handle = undefined;
 				const current = await stat(canonical);
-				const currentSource = (
-					await readBounded(canonical, doc.root)
-				).toString("utf8");
+				const currentSource = (await readBounded(canonical, doc.root)).toString(
+					"utf8",
+				);
 				if (
 					current.dev !== details.dev ||
 					current.ino !== details.ino ||

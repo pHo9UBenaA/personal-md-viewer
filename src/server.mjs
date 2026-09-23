@@ -15,6 +15,11 @@ const assets = new Map([
 const csp =
 	"default-src 'none'; script-src 'self'; style-src 'self'; img-src blob:; connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
+const withoutHighlights = (html) =>
+	html
+		.replace(/<mark data-mdv-color="(?:green|yellow|orange|pink|blue)">/g, "")
+		.replace(/<\/mark>/g, "");
+
 async function readJson(request) {
 	if (request.headers["content-type"] !== "application/json")
 		throw new ViewerError("JSON が必要です。", 415);
@@ -172,9 +177,10 @@ export async function createViewerServer({
 					case "/api/highlight": {
 						const doc = await library.highlight(
 							body.id,
-							body.color,
-							body.ranges,
-							body.version,
+							body,
+							(before, after) =>
+								withoutHighlights(renderMarkdown(before, { allowHtml })) ===
+								withoutHighlights(renderMarkdown(after, { allowHtml })),
 						);
 						return send(200, {
 							...doc,

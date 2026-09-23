@@ -166,6 +166,7 @@ test("highlights update only a verified path document and reject stale selection
 	const start = original.source.indexOf("important words");
 	const response = await api("highlight", {
 		id: documents[0].id,
+		mode: "add",
 		color: "yellow",
 		version: original.version,
 		ranges: [
@@ -190,6 +191,7 @@ test("highlights update only a verified path document and reject stale selection
 		(
 			await api("highlight", {
 				id: documents[0].id,
+				mode: "add",
 				color: "green",
 				version: original.version,
 				ranges: [{ start, end: start + 9, text: "important" }],
@@ -197,17 +199,67 @@ test("highlights update only a verified path document and reject stale selection
 		).status,
 		409,
 	);
+	const markedSource = await readFile(file, "utf8");
+	const markerStart = markedSource.indexOf("<mark");
+	const markerEnd = markedSource.indexOf("</mark>", markerStart) + 7;
+	const recoloredResponse = await api("highlight", {
+		id: documents[0].id,
+		mode: "recolor",
+		color: "blue",
+		version: updated.version,
+		marker: { start: markerStart, end: markerEnd, color: "yellow" },
+	});
+	assert.equal(recoloredResponse.status, 200);
+	const recolored = await recoloredResponse.json();
+	assert.match(recolored.html, /data-mdv-color="blue"/);
+	const blueSource = await readFile(file, "utf8");
+	const blueEnd = blueSource.indexOf("</mark>", markerStart) + 7;
+	const removedResponse = await api("highlight", {
+		id: documents[0].id,
+		mode: "remove",
+		version: recolored.version,
+		marker: { start: markerStart, end: blueEnd, color: "blue" },
+	});
+	assert.equal(removedResponse.status, 200);
+	assert.equal(
+		await readFile(file, "utf8"),
+		"Before **important words** after.",
+	);
 	assert.equal(
 		(
 			await api("highlight", {
 				id: documents[0].id,
+				mode: "add",
 				color: "purple",
-				version: updated.version,
+				version: (await removedResponse.json()).version,
 				ranges: [{ start: 0, end: 1, text: "B" }],
 			})
 		).status,
 		400,
 	);
+});
+test("highlights cannot rewrite Markdown structure through a mistaken text offset", async () => {
+	const file = join(folder, "highlight-structure.md");
+	const source = "[label](repeated)repeated";
+	await writeFile(file, source);
+	const { documents } = await (await api("open", { path: file })).json();
+	const original = await (await api("read", { id: documents[0].id })).json();
+	const wrongStart = source.indexOf("repeated");
+	const response = await api("highlight", {
+		id: documents[0].id,
+		mode: "add",
+		color: "orange",
+		version: original.version,
+		ranges: [
+			{
+				start: wrongStart,
+				end: wrongStart + "repeated".length,
+				text: "repeated",
+			},
+		],
+	});
+	assert.equal(response.status, 409);
+	assert.equal(await readFile(file, "utf8"), source);
 });
 test("byte limits remain while folders can exceed previous document caps", async () => {
 	const big = join(root, "big.md");
