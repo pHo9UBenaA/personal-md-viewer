@@ -56,7 +56,8 @@ pre {
 	padding: 18px;
 	overflow: auto;
 	line-height: 1.65;
-	overflow-wrap: normal;
+	overflow-wrap: anywhere;
+	white-space: pre-wrap;
 }
 pre code {
 	padding: 0;
@@ -95,10 +96,6 @@ hr {
 .image-note {
 	font-size: 12px;
 	color: var(--muted);
-}
-.source {
-	overflow-wrap: anywhere;
-	white-space: pre-wrap;
 }
 mark[data-mdv-color] {
 	padding: 0 0.08em;

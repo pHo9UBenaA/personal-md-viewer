@@ -32,6 +32,25 @@ test("trusted HTML opens details without executing scripts", async ({
 		await new Promise((resolve) => server.close(resolve));
 	}
 });
+test("fenced code wraps long lines without horizontal scrolling", async ({
+	page,
+}) => {
+	await page.setViewportSize({ width: 500, height: 820 });
+	await page.goto("/");
+	await page.locator("#files").setInputFiles({
+		name: "code.md",
+		mimeType: "text/markdown",
+		buffer: Buffer.from(
+			`\`\`\`txt\n${"longword".repeat(100)}\n${"word ".repeat(100)}\n\`\`\``,
+		),
+	});
+	const pre = page.frameLocator("#content").locator("pre");
+	await expect(pre).toBeVisible();
+	await expect(pre).toHaveCSS("white-space", "pre-wrap");
+	expect(
+		await pre.evaluate((element) => element.scrollWidth <= element.clientWidth),
+	).toBe(true);
+});
 test("imports over 200 documents lazily and accepts a drop onto the reader", async ({
 	page,
 }) => {
