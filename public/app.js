@@ -19,6 +19,7 @@ let paletteIndex = 0;
 let paletteMatches = [];
 let importNumber = 0;
 let highlightSelection = null;
+let highlightListeners = null;
 const collapsedFolders = new Set();
 const filterCollapsedFolders = new Set();
 const MAX_BYTES = 1024 * 1024;
@@ -349,6 +350,8 @@ function drawTabs() {
 }
 
 function clearReader() {
+	highlightListeners?.abort();
+	highlightListeners = null;
 	highlightSelection = null;
 	$("highlight-toolbar").hidden = true;
 	for (const url of blobUrls) URL.revokeObjectURL(url);
@@ -455,6 +458,33 @@ function sourceRangesForSelection(selection, mapping, source) {
 
 function watchHighlightSelection(frameDocument, doc, revision) {
 	const mapping = mapSourceText(frameDocument, doc.source);
+	const frame = frameDocument.defaultView.frameElement;
+	const toolbar = $("highlight-toolbar");
+	const controller = new AbortController();
+	highlightListeners = controller;
+	const position = () => {
+		if (toolbar.hidden || revision !== generation) return;
+		const selection = frameDocument.getSelection();
+		if (!selection?.rangeCount || selection.isCollapsed) return;
+		const frameRect = frame.getBoundingClientRect();
+		const rects = [...selection.getRangeAt(0).getClientRects()].filter(
+			(rect) => rect.width && rect.height,
+		);
+		const rect = rects.at(-1);
+		if (!rect || frameRect.bottom < 0 || frameRect.top > innerHeight) return;
+		const x = frameRect.left + rect.left + rect.width / 2;
+		const top = frameRect.top + rect.top;
+		const bottom = frameRect.top + rect.bottom;
+		const width = toolbar.offsetWidth;
+		const height = toolbar.offsetHeight;
+		toolbar.style.left = `${Math.max(8, Math.min(innerWidth - width - 8, x - width / 2))}px`;
+		toolbar.style.top = `${top - height - 10 >= 8 ? top - height - 10 : Math.min(innerHeight - height - 8, bottom + 10)}px`;
+		toolbar.style.visibility =
+			bottom < Math.max(0, frameRect.top) ||
+			top > Math.min(innerHeight, frameRect.bottom)
+				? "hidden"
+				: "visible";
+	};
 	const update = () => {
 		if (revision !== generation || showSource) return;
 		const selected = sourceRangesForSelection(
@@ -482,7 +512,13 @@ function watchHighlightSelection(frameDocument, doc, revision) {
 			);
 		}
 		$("highlight-remove").disabled = Boolean(doc.file || !selected.marker);
+		position();
 	};
+	frameDocument.defaultView.addEventListener("scroll", position, {
+		passive: true,
+		signal: controller.signal,
+	});
+	window.addEventListener("resize", position, { signal: controller.signal });
 	frameDocument.addEventListener("selectionchange", update);
 	frameDocument.addEventListener("mouseup", update);
 	frameDocument.addEventListener("keyup", update);
@@ -902,6 +938,12 @@ function shortcuts(event) {
 		return;
 	}
 	if (event.key === "Escape" && !$("palette").open) {
+		if (!$("highlight-toolbar").hidden) {
+			$("content").contentWindow?.getSelection()?.removeAllRanges();
+			highlightSelection = null;
+			$("highlight-toolbar").hidden = true;
+			return;
+		}
 		setFocusMode(false);
 		return;
 	}
@@ -1040,6 +1082,16 @@ $("source-toggle").addEventListener("click", () => {
 	$("source-toggle").setAttribute("aria-pressed", String(showSource));
 	$("source-toggle").textContent = showSource ? "プレビュー" : "ソース";
 	if (active) activate(active);
+});
+document.addEventListener("pointerdown", (event) => {
+	if (
+		!$("highlight-toolbar").hidden &&
+		!$("highlight-toolbar").contains(event.target)
+	) {
+		$("content").contentWindow?.getSelection()?.removeAllRanges();
+		highlightSelection = null;
+		$("highlight-toolbar").hidden = true;
+	}
 });
 $("highlight-toolbar").addEventListener("click", (event) => {
 	if (event.target.closest("#highlight-remove")) {

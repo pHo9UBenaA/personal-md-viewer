@@ -164,7 +164,9 @@ test("highlights can be added, recolored, and removed without leaving focus mode
 }) => {
 	const root = await mkdtemp(join(tmpdir(), "viewer-highlights-"));
 	const file = join(root, "highlights.md");
-	const source = "# Marker test\n\nChoose **important words** now.";
+	const source =
+		"# Marker test\n\nChoose **important words** now." +
+		"\n\nMore text.".repeat(100);
 	await writeFile(file, source);
 	const server = await createViewerServer({ initialPaths: [file] });
 	server.listen(0, "127.0.0.1");
@@ -185,6 +187,34 @@ test("highlights can be added, recolored, and removed without leaving focus mode
 			});
 		const toolbar = page.getByRole("toolbar", { name: "マーカーの色" });
 		await expect(toolbar).toBeVisible();
+		const selectionBox = await page.locator("#content").evaluate((frame) => {
+			const frameBox = frame.getBoundingClientRect();
+			const rangeBox = frame.contentWindow
+				.getSelection()
+				.getRangeAt(0)
+				.getBoundingClientRect();
+			return {
+				x: frameBox.left + rangeBox.left,
+				y: frameBox.top + rangeBox.top,
+			};
+		});
+		const popupBox = await toolbar.boundingBox();
+		expect(Math.abs(popupBox.x - selectionBox.x)).toBeLessThan(250);
+		expect(popupBox.y + popupBox.height).toBeLessThan(selectionBox.y);
+		await page
+			.locator("#content")
+			.evaluate((frame) => frame.contentWindow.scrollTo(0, 600));
+		await expect(toolbar).toBeHidden();
+		await page
+			.locator("#content")
+			.evaluate((frame) => frame.contentWindow.scrollTo(0, 0));
+		await expect(toolbar).toBeVisible();
+		await page.setViewportSize({ width: 390, height: 844 });
+		await expect
+			.poll(async () => (await toolbar.boundingBox()).x)
+			.toBeGreaterThanOrEqual(0);
+		const mobileBox = await toolbar.boundingBox();
+		expect(mobileBox.x + mobileBox.width).toBeLessThanOrEqual(390);
 		await expect(
 			page.getByRole("button", { name: "マーカーを外す" }),
 		).toBeDisabled();
