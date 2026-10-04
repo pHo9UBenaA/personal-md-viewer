@@ -6,10 +6,11 @@
 	} catch {
 		/* Storage may be disabled. */
 	}
-	document.documentElement.dataset.theme =
-		preference === "light" || preference === "dark"
-			? preference
-			: matchMedia("(prefers-color-scheme: dark)").matches
-				? "dark"
-				: "light";
+	const systemTheme = matchMedia("(prefers-color-scheme: dark)").matches
+		? "dark"
+		: "light";
+	const hasSavedTheme = preference === "light" || preference === "dark";
+	document.documentElement.dataset.theme = hasSavedTheme
+		? preference
+		: systemTheme;
 })();

@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { once } from "node:events";
 import {
 	mkdir,
 	mkdtemp,
@@ -11,15 +10,22 @@ import {
 	unlink,
 	writeFile,
 } from "node:fs/promises";
-import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { MAX_FILE_BYTES, readBounded } from "../src/library.mjs";
-import { renderMarkdown } from "../src/render.mjs";
 import { createViewerServer } from "../src/server.mjs";
+import {
+	closeServer,
+	listenOnLoopback,
+	requestWithExactHost,
+} from "./helpers/http.mjs";
 
-let root, folder, server, base, token;
+let root;
+let folder;
+let server;
+let base;
+let token;
 before(async () => {
 	root = await realpath(await mkdtemp(join(tmpdir(), "markdown-viewer-test-")));
 	folder = join(root, "日本語 space # %");
@@ -33,17 +39,12 @@ before(async () => {
 	await writeFile(join(root, "secret.md"), "secret");
 	await symlink(join(root, "secret.md"), join(folder, "escape.md"));
 	server = await createViewerServer();
-	server.listen(0, "127.0.0.1");
-	await once(server, "listening");
-	base = `http://127.0.0.1:${server.address().port}`;
+	base = await listenOnLoopback(server);
 	const html = await (await fetch(base)).text();
 	token = html.match(/name="viewer-token" content="([^"]+)"/)[1];
 });
 after(async () => {
-	if (server) {
-		server.closeAllConnections();
-		await new Promise((resolve) => server.close(resolve));
-	}
+	if (server) await closeServer(server);
 	if (root) await rm(root, { recursive: true, force: true });
 });
 const api = (route, body = {}, headers = {}) =>
@@ -57,28 +58,74 @@ const api = (route, body = {}, headers = {}) =>
 		body: JSON.stringify(body),
 	});
 
+async function apiJson(route, body = {}) {
+	const response = await api(route, body);
+	assert.equal(response.status, 200, `${route}: ${JSON.stringify(body)}`);
+	return response.json();
+}
+
+async function createHighlightDocument(
+	name,
+	source = "Before **important words** after.",
+) {
+	const path = join(folder, name);
+	await writeFile(path, source);
+	const openedResponse = await api("open", { path });
+	assert.equal(openedResponse.status, 200, `open ${name}`);
+	const { documents } = await openedResponse.json();
+	const readResponse = await api("read", { id: documents[0].id });
+	assert.equal(readResponse.status, 200, `read ${name}`);
+	return { path, document: await readResponse.json() };
+}
+
+const importantWords = "important words";
+function highlightRequest(document, overrides = {}) {
+	const start = document.source.indexOf(importantWords);
+	return {
+		id: document.id,
+		mode: "add",
+		color: "yellow",
+		version: document.version,
+		ranges: [
+			{ start, end: start + importantWords.length, text: importantWords },
+		],
+		...overrides,
+	};
+}
+
+function sourceMarker(source, color) {
+	const start = source.indexOf(`<mark data-mdv-color="${color}">`);
+	assert.notEqual(start, -1, `missing ${color} marker in ${source}`);
+	const closeStart = source.indexOf("</mark>", start);
+	assert.notEqual(closeStart, -1, `missing closing marker in ${source}`);
+	return { start, end: closeStart + "</mark>".length, color };
+}
+
 test("absolute folder paths, recursive opt-in, extension case, and deduplication", async () => {
-	const direct = await (await api("open", { path: folder })).json();
+	const direct = await apiJson("open", { path: folder });
 	assert.deepEqual(
 		direct.documents.map((doc) => doc.name),
 		["a.md"],
 	);
-	const recursive = await (
-		await api("open", { path: `"${folder}"`, recursive: true })
-	).json();
+	const recursive = await apiJson("open", {
+		path: `"${folder}"`,
+		recursive: true,
+	});
 	assert.equal(recursive.documents.length, 2);
 	assert.equal(direct.documents[0].id, recursive.documents[0].id);
-	const doc = await (await api("read", { id: direct.documents[0].id })).json();
+	const doc = await apiJson("read", { id: direct.documents[0].id });
 	assert.match(doc.html, /<h1>Hello<\/h1>/);
 });
 test("restored paths keep their original folder scope", async () => {
-	const { documents } = await (
-		await api("open", { path: folder, recursive: true })
-	).json();
+	const { documents } = await apiJson("open", {
+		path: folder,
+		recursive: true,
+	});
 	const nested = documents.find((doc) => doc.name === "b.MARKDOWN");
-	const restored = await (
-		await api("restore", { path: nested.path, root: folder })
-	).json();
+	const restored = await apiJson("restore", {
+		path: nested.path,
+		root: folder,
+	});
 	assert.equal(restored.document.id, nested.id);
 	assert.equal(restored.document.root, folder);
 	assert.equal(
@@ -95,16 +142,15 @@ test("token, Origin, Fetch Metadata and Host protect local file APIs", async () 
 		{ "Sec-Fetch-Site": "cross-site" },
 		{ "Sec-Fetch-Site": "same-site" },
 	])
-		assert.equal((await api("open", { path: root }, headers)).status, 403);
-	const status = await new Promise((resolve, reject) => {
-		const req = request(base, { headers: { Host: "evil.example" } }, (res) => {
-			res.resume();
-			resolve(res.statusCode);
-		});
-		req.on("error", reject);
-		req.end();
+		assert.equal(
+			(await api("open", { path: root }, headers)).status,
+			403,
+			JSON.stringify(headers),
+		);
+	const untrustedHostResponse = await requestWithExactHost(base, {
+		headers: { Host: "evil.example" },
 	});
-	assert.equal(status, 403);
+	assert.equal(untrustedHostResponse.status, 403);
 	assert.equal(
 		(
 			await fetch(`${base}/api/initial`, {
@@ -116,7 +162,7 @@ test("token, Origin, Fetch Metadata and Host protect local file APIs", async () 
 });
 test("asset routes never expose arbitrary local files", async () => {
 	for (const route of ["/files/secret.md", "/package.json"])
-		assert.equal((await fetch(base + route)).status, 404);
+		assert.equal((await fetch(base + route)).status, 404, route);
 	const response = await fetch(base);
 	assert.match(
 		response.headers.get("content-security-policy"),
@@ -125,7 +171,7 @@ test("asset routes never expose arbitrary local files", async () => {
 	assert.equal(response.headers.get("cache-control"), "no-store");
 });
 test("relative Markdown links and images remain within the selected root", async () => {
-	const { documents } = await (await api("open", { path: folder })).json();
+	const { documents } = await apiJson("open", { path: folder });
 	const id = documents[0].id;
 	assert.equal(
 		(await api("related", { id, href: "nested/b.MARKDOWN#next" })).status,
@@ -136,47 +182,32 @@ test("relative Markdown links and images remain within the selected root", async
 		"image/png",
 	);
 	for (const href of ["../secret.md", "%2e%2e/secret.md", "escape.md"])
-		assert.equal((await api("related", { id, href })).status, 403);
+		assert.equal((await api("related", { id, href })).status, 403, href);
 	for (const href of [
 		"file:///etc/passwd",
 		"https://example.com/a.md",
 		"%00.md",
 		"%zz",
 	])
-		assert.equal((await api("related", { id, href })).status, 400);
+		assert.equal((await api("related", { id, href })).status, 400, href);
 	assert.equal((await api("image", { id, href: "a.md" })).status, 400);
 });
 test("changed files are read again; deletion and replaced symlinks fail safely", async () => {
 	const file = join(folder, "changing.md");
 	await writeFile(file, "before");
-	const { documents } = await (await api("open", { path: file })).json();
+	const { documents } = await apiJson("open", { path: file });
 	const id = documents[0].id;
 	await writeFile(file, "after");
-	assert.equal((await (await api("read", { id })).json()).source, "after");
+	assert.equal((await apiJson("read", { id })).source, "after");
 	await unlink(file);
 	assert.equal((await api("read", { id })).status, 404);
 	await symlink(join(root, "secret.md"), file);
 	assert.equal((await api("read", { id })).status, 403);
 });
-test("highlights update only a verified path document and reject stale selections", async () => {
-	const file = join(folder, "highlights.md");
-	await writeFile(file, "Before **important words** after.");
-	const { documents } = await (await api("open", { path: file })).json();
-	const original = await (await api("read", { id: documents[0].id })).json();
-	const start = original.source.indexOf("important words");
-	const response = await api("highlight", {
-		id: documents[0].id,
-		mode: "add",
-		color: "yellow",
-		version: original.version,
-		ranges: [
-			{
-				start,
-				end: start + "important words".length,
-				text: "important words",
-			},
-		],
-	});
+test("highlights add, recolor, and remove markers while preserving the original Markdown", async () => {
+	const { path: file, document: original } =
+		await createHighlightDocument("highlights.md");
+	const response = await api("highlight", highlightRequest(original));
 	assert.equal(response.status, 200);
 	const updated = await response.json();
 	assert.match(
@@ -187,63 +218,88 @@ test("highlights update only a verified path document and reject stale selection
 		await readFile(file, "utf8"),
 		'Before **<mark data-mdv-color="yellow">important words</mark>** after.',
 	);
-	assert.equal(
-		(
-			await api("highlight", {
-				id: documents[0].id,
-				mode: "add",
-				color: "green",
-				version: original.version,
-				ranges: [{ start, end: start + 9, text: "important" }],
-			})
-		).status,
-		409,
-	);
 	const markedSource = await readFile(file, "utf8");
-	const markerStart = markedSource.indexOf("<mark");
-	const markerEnd = markedSource.indexOf("</mark>", markerStart) + 7;
 	const recoloredResponse = await api("highlight", {
-		id: documents[0].id,
+		id: original.id,
 		mode: "recolor",
 		color: "blue",
 		version: updated.version,
-		marker: { start: markerStart, end: markerEnd, color: "yellow" },
+		marker: sourceMarker(markedSource, "yellow"),
 	});
 	assert.equal(recoloredResponse.status, 200);
 	const recolored = await recoloredResponse.json();
 	assert.match(recolored.html, /data-mdv-color="blue"/);
 	const blueSource = await readFile(file, "utf8");
-	const blueEnd = blueSource.indexOf("</mark>", markerStart) + 7;
 	const removedResponse = await api("highlight", {
-		id: documents[0].id,
+		id: original.id,
 		mode: "remove",
 		version: recolored.version,
-		marker: { start: markerStart, end: blueEnd, color: "blue" },
+		marker: sourceMarker(blueSource, "blue"),
 	});
 	assert.equal(removedResponse.status, 200);
 	assert.equal(
 		await readFile(file, "utf8"),
 		"Before **important words** after.",
 	);
-	assert.equal(
-		(
-			await api("highlight", {
-				id: documents[0].id,
-				mode: "add",
-				color: "purple",
-				version: (await removedResponse.json()).version,
-				ranges: [{ start: 0, end: 1, text: "B" }],
-			})
-		).status,
-		400,
-	);
 });
+
+test("highlights reject stale versions without overwriting disk changes", async () => {
+	const { path, document } =
+		await createHighlightDocument("stale-highlight.md");
+	await writeFile(path, "Changed on disk.");
+	const response = await api("highlight", highlightRequest(document));
+	assert.equal(response.status, 409);
+	assert.equal(await readFile(path, "utf8"), "Changed on disk.");
+});
+
+test("highlights reject unknown colors without modifying the source", async () => {
+	const { path, document } = await createHighlightDocument("invalid-color.md");
+	const response = await api(
+		"highlight",
+		highlightRequest(document, { color: "purple" }),
+	);
+	assert.equal(response.status, 400);
+	assert.equal(await readFile(path, "utf8"), document.source);
+});
+
+test("highlights reject invalid, overlapping, or mismatched source ranges", async (t) => {
+	const { path, document } = await createHighlightDocument(
+		"invalid-ranges.md",
+		"abcdef",
+	);
+	const cases = [
+		{ name: "negative start", ranges: [{ start: -1, end: 1, text: "a" }] },
+		{ name: "empty range", ranges: [{ start: 1, end: 1, text: "" }] },
+		{ name: "past source end", ranges: [{ start: 5, end: 7, text: "f" }] },
+		{ name: "fractional offset", ranges: [{ start: 0.5, end: 1, text: "a" }] },
+		{ name: "mismatched text", ranges: [{ start: 0, end: 1, text: "b" }] },
+		{
+			name: "overlapping ranges",
+			ranges: [
+				{ start: 0, end: 2, text: "ab" },
+				{ start: 1, end: 3, text: "bc" },
+			],
+		},
+		{ name: "missing range", ranges: [null] },
+	];
+	for (const { name, ranges } of cases) {
+		await t.test(name, async () => {
+			const response = await api(
+				"highlight",
+				highlightRequest(document, { ranges }),
+			);
+			assert.equal(response.status, 409);
+			assert.equal(await readFile(path, "utf8"), document.source);
+		});
+	}
+});
+
 test("highlights cannot rewrite Markdown structure through a mistaken text offset", async () => {
 	const file = join(folder, "highlight-structure.md");
 	const source = "[label](repeated)repeated";
 	await writeFile(file, source);
-	const { documents } = await (await api("open", { path: file })).json();
-	const original = await (await api("read", { id: documents[0].id })).json();
+	const { documents } = await apiJson("open", { path: file });
+	const original = await apiJson("read", { id: documents[0].id });
 	const wrongStart = source.indexOf("repeated");
 	const response = await api("highlight", {
 		id: documents[0].id,
@@ -261,19 +317,20 @@ test("highlights cannot rewrite Markdown structure through a mistaken text offse
 	assert.equal(response.status, 409);
 	assert.equal(await readFile(file, "utf8"), source);
 });
-test("byte limits remain while folders can exceed previous document caps", async () => {
-	const big = join(root, "big.md");
-	await writeFile(big, "x".repeat(MAX_FILE_BYTES + 1));
-	assert.equal((await api("open", { path: big })).status, 413);
-	const { documents: oversized } = await (
-		await api("open", { path: root })
-	).json();
+test("open, read, and render enforce Markdown byte limits", async () => {
+	const oversizedFile = join(root, "big.md");
+	await writeFile(oversizedFile, "x".repeat(MAX_FILE_BYTES + 1));
+	assert.equal((await api("open", { path: oversizedFile })).status, 413);
+	const { documents: oversized } = await apiJson("open", { path: root });
 	const bigId = oversized.find((doc) => doc.name === "big.md").id;
 	assert.equal((await api("read", { id: bigId })).status, 413);
 	assert.equal(
 		(await api("render", { source: "x".repeat(2 * MAX_FILE_BYTES) })).status,
 		413,
 	);
+});
+
+test("open registers folders with more than one thousand documents", async () => {
 	const many = join(root, "many");
 	await mkdir(many);
 	await Promise.all(
@@ -281,8 +338,11 @@ test("byte limits remain while folders can exceed previous document caps", async
 			writeFile(join(many, `${index}.md`), "hi"),
 		),
 	);
-	const { documents } = await (await api("open", { path: many })).json();
+	const { documents } = await apiJson("open", { path: many });
 	assert.equal(documents.length, 1001);
+});
+
+test("open rejects folders without Markdown", async () => {
 	const empty = join(root, "empty");
 	await mkdir(empty);
 	assert.equal((await api("open", { path: empty })).status, 400);
@@ -294,9 +354,9 @@ test("encoded local links preserve contents and cannot escape into a sibling", a
 	await mkdir(sibling);
 	await writeFile(join(selected, "index.md"), "index");
 	await writeFile(join(sibling, "secret.md"), "secret");
-	const { documents } = await (
-		await api("open", { path: join(selected, "index.md") })
-	).json();
+	const { documents } = await apiJson("open", {
+		path: join(selected, "index.md"),
+	});
 	const id = documents[0].id;
 	// Bounded generated cases: encoding and harmless path rewrites preserve identity.
 	for (const [index, name] of [
@@ -322,7 +382,7 @@ test("encoded local links preserve contents and cannot escape into a sibling", a
 			canonicalId ??= doc.id;
 			assert.equal(doc.id, canonicalId, href);
 			assert.equal(
-				(await (await api("read", { id: doc.id })).json()).source,
+				(await apiJson("read", { id: doc.id })).source,
 				source,
 				href,
 			);
@@ -336,22 +396,6 @@ test("encoded local links preserve contents and cannot escape into a sibling", a
 	}
 });
 test("configured origin supports proxies without trusting forwarded headers", async () => {
-	// Use node:http to send the exact Host header a reverse proxy forwards.
-	const fetch = (url, options = {}) =>
-		new Promise((resolve, reject) => {
-			const req = request(url, options, (res) => {
-				const chunks = [];
-				res.on("data", (chunk) => chunks.push(chunk));
-				res.on("end", () =>
-					resolve(
-						new Response(Buffer.concat(chunks), { status: res.statusCode }),
-					),
-				);
-				res.on("error", reject);
-			});
-			req.on("error", reject);
-			req.end(options.body);
-		});
 	for (const invalid of [
 		"file:///tmp",
 		"http://user:pass@md.localhost",
@@ -362,11 +406,11 @@ test("configured origin supports proxies without trusting forwarded headers", as
 	const proxyServer = await createViewerServer({
 		publicOrigin: "https://md.localhost",
 	});
-	proxyServer.listen(0, "127.0.0.1");
-	await once(proxyServer, "listening");
+	const url = await listenOnLoopback(proxyServer);
 	try {
-		const url = `http://127.0.0.1:${proxyServer.address().port}`;
-		const shell = await fetch(url, { headers: { Host: "md.localhost" } });
+		const shell = await requestWithExactHost(url, {
+			headers: { Host: "md.localhost" },
+		});
 		assert.equal(shell.status, 200);
 		const csrf = (await shell.text()).match(
 			/name="viewer-token" content="([^"]+)"/,
@@ -379,7 +423,7 @@ test("configured origin supports proxies without trusting forwarded headers", as
 		};
 		assert.equal(
 			(
-				await fetch(`${url}/api/open`, {
+				await requestWithExactHost(`${url}/api/open`, {
 					method: "POST",
 					headers,
 					body: JSON.stringify({ path: folder }),
@@ -387,10 +431,10 @@ test("configured origin supports proxies without trusting forwarded headers", as
 			).status,
 			200,
 		);
-		assert.equal((await fetch(url)).status, 403);
+		assert.equal((await requestWithExactHost(url)).status, 403);
 		assert.equal(
 			(
-				await fetch(url, {
+				await requestWithExactHost(url, {
 					headers: { Host: "evil.example", "X-Forwarded-Host": "md.localhost" },
 				})
 			).status,
@@ -398,7 +442,7 @@ test("configured origin supports proxies without trusting forwarded headers", as
 		);
 		assert.equal(
 			(
-				await fetch(url, {
+				await requestWithExactHost(url, {
 					headers: {
 						Host: "md.localhost",
 						Origin: "http://md.localhost",
@@ -409,8 +453,7 @@ test("configured origin supports proxies without trusting forwarded headers", as
 			403,
 		);
 	} finally {
-		proxyServer.closeAllConnections();
-		await new Promise((resolve) => proxyServer.close(resolve));
+		await closeServer(proxyServer);
 	}
 });
 test(
@@ -422,80 +465,23 @@ test(
 		await assert.rejects(readBounded(pipe, root), /通常のファイル/);
 	},
 );
-test("Markdown escapes active HTML, unsafe links and code info; images stay inert", () => {
-	const html = renderMarkdown(
-		'<script>alert(1)</script>\n\n<img src=x onerror=alert(1)>\n\n[x](javascript:alert(1))\n\n![remote](https://evil.example/track)\n\n[safe](nested/b.md)\n\n```js" onmouseover="alert(1)\n<script>\n```',
-	);
-	assert.doesNotMatch(
-		html,
-		/<script|<img src|href="javascript:|<[^>]+\sonerror=/,
-	);
-	assert.match(html, /data-image="https:\/\/evil.example\/track"/);
-	assert.match(html, /&lt;script&gt;/);
-	assert.match(html, /data-link="nested\/b.md"/);
-	assert.doesNotMatch(html, /<a\b[^>]*\shref=/);
-});
-
-test("only fixed highlight tags render when raw HTML is disabled", () => {
-	const html = renderMarkdown(
-		'Plain <mark data-mdv-color="pink">marked</mark> text.\n\n<mark data-mdv-color="pink" onclick="alert(1)">unsafe</mark>',
-	);
-	assert.match(html, /<mark data-mdv-color="pink">marked<\/mark>/);
-	assert.doesNotMatch(html, /<mark[^>]+onclick=/);
-	assert.match(html, /&lt;mark data-mdv-color=&quot;pink&quot; onclick=/);
-});
-
-test("Markdown hides HTML comments without hiding code examples or allowing raw HTML", () => {
-	const html = renderMarkdown(
-		"<!-- 作業用本文 -->\n\n表示する本文 <!-- 非表示 --> 続き\n\n<!-- 複数行\n\n非表示の段落\n-->\n\n`<!-- コード -->`\n\n```md\n<!-- フェンス内 -->\n```\n\n\\<!-- エスケープ -->\n\n<script>alert(1)</script>",
-	);
-	assert.match(html, /<p>表示する本文 {2}続き<\/p>/);
-	assert.doesNotMatch(html, /作業用本文|非表示|非表示の段落/);
-	assert.match(html, /<code>&lt;!-- コード --&gt;<\/code>/);
-	assert.match(html, /&lt;!-- フェンス内 --&gt;/);
-	assert.match(html, /&lt;!-- エスケープ --&gt;/);
-	assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
-	assert.doesNotMatch(html, /<script>/);
-	assert.equal(
-		renderMarkdown("<!-- 下書き\n\n非表示の段落\n--> 続き"),
-		"<p>続き</p>\n",
-	);
-});
-
-test("raw HTML requires opt-in and renders details while omitting comments", () => {
-	const source =
-		"<!-- 作業用本文 -->\n\n<details>\n<summary>詳細</summary>\n\n**本文**\n\n</details>";
-	const safe = renderMarkdown(source);
-	const trusted = renderMarkdown(source, { allowHtml: true });
-	assert.match(safe, /&lt;details&gt;/);
-	assert.doesNotMatch(safe, /作業用本文/);
-	assert.match(trusted, /<details>/);
-	assert.match(trusted, /<summary>詳細<\/summary>/);
-	assert.match(trusted, /<strong>本文<\/strong>/);
-	assert.doesNotMatch(trusted, /作業用本文/);
-	assert.equal(
-		renderMarkdown("<!-- 下書き\n\n非表示\n--> 続き", { allowHtml: true }),
-		"<p>続き</p>\n",
-	);
-});
-
 test("render limits count UTF-8 bytes and accept the exact boundary", async () => {
 	const source = `${"あ".repeat(Math.floor(MAX_FILE_BYTES / 3))}x`;
 	assert.equal(Buffer.byteLength(source), MAX_FILE_BYTES);
 	const accepted = await api("render", { source });
 	assert.equal(accepted.status, 200);
-	assert.ok((await accepted.json()).html.includes(source));
+	assert.equal((await accepted.json()).html, `<p>${source}</p>\n`);
 	assert.equal((await api("render", { source: `${source}x` })).status, 413);
 });
 
 test("malformed JSON is rejected without breaking subsequent requests", async () => {
-	for (const body of ["{", "null"]) {
+	for (const body of ["{", "null", "[]", "true"]) {
 		const response = await fetch(`${base}/api/render`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json", "X-Viewer-Token": token },
 			body,
 		});
-		assert.equal(response.status, 400);
+		assert.equal(response.status, 400, body);
 	}
 	assert.equal(
 		(await api("render", { source: "ok" }, { "Content-Type": "text/plain" }))

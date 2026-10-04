@@ -1,19 +1,18 @@
-import { once } from "node:events";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { createViewerServer } from "../../src/server.mjs";
+import { closeServer, listenOnLoopback } from "../helpers/http.mjs";
 
 let folder;
 test("trusted HTML opens details without executing scripts", async ({
 	page,
 }) => {
 	const server = await createViewerServer({ allowHtml: true });
-	server.listen(0, "127.0.0.1");
-	await once(server, "listening");
+	const url = await listenOnLoopback(server);
 	try {
-		await page.goto(`http://127.0.0.1:${server.address().port}`);
+		await page.goto(url);
 		await page.locator("#files").setInputFiles({
 			name: "details.md",
 			mimeType: "text/markdown",
@@ -28,8 +27,7 @@ test("trusted HTML opens details without executing scripts", async ({
 		await expect(details.locator("strong")).toBeVisible();
 		expect(await page.evaluate(() => window.__rawHtmlRan)).toBeUndefined();
 	} finally {
-		server.closeAllConnections();
-		await new Promise((resolve) => server.close(resolve));
+		await closeServer(server);
 	}
 });
 test("fenced code wraps long lines without horizontal scrolling", async ({
@@ -47,9 +45,11 @@ test("fenced code wraps long lines without horizontal scrolling", async ({
 	const pre = page.frameLocator("#content").locator("pre");
 	await expect(pre).toBeVisible();
 	await expect(pre).toHaveCSS("white-space", "pre-wrap");
-	expect(
-		await pre.evaluate((element) => element.scrollWidth <= element.clientWidth),
-	).toBe(true);
+	const dimensions = await pre.evaluate((element) => ({
+		scrollWidth: element.scrollWidth,
+		clientWidth: element.clientWidth,
+	}));
+	expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth);
 });
 test("imports over 200 documents lazily and accepts a drop onto the reader", async ({
 	page,
@@ -169,10 +169,9 @@ test("highlights can be added, recolored, and removed without leaving focus mode
 		"\n\nMore text.".repeat(100);
 	await writeFile(file, source);
 	const server = await createViewerServer({ initialPaths: [file] });
-	server.listen(0, "127.0.0.1");
-	await once(server, "listening");
+	const url = await listenOnLoopback(server);
 	try {
-		await page.goto(`http://127.0.0.1:${server.address().port}`);
+		await page.goto(url);
 		const focus = page.locator("#focus-toggle");
 		await focus.click();
 		await page
@@ -245,8 +244,7 @@ test("highlights can be added, recolored, and removed without leaving focus mode
 		await expect(focus).toHaveAttribute("aria-pressed", "true");
 		expect(await readFile(file, "utf8")).toBe(source);
 	} finally {
-		server.closeAllConnections();
-		await new Promise((resolve) => server.close(resolve));
+		await closeServer(server);
 		await rm(root, { recursive: true, force: true });
 	}
 });
@@ -294,13 +292,9 @@ async function openFolder(page) {
 			.getByRole("heading", { name: "First document", exact: true }),
 	).toBeVisible();
 }
-test("folder tabs, relative links, local images, no remote requests or HTML execution", async ({
+test("file tree preserves collapsed folders while filtering and supports keyboard expansion", async ({
 	page,
 }) => {
-	const remote = [];
-	page.on("request", (request) => {
-		if (request.url().startsWith("https://")) remote.push(request.url());
-	});
 	await openFolder(page);
 	const nestedFolder = page.getByRole("treeitem", {
 		name: "nested フォルダー",
@@ -326,6 +320,12 @@ test("folder tabs, relative links, local images, no remote requests or HTML exec
 	await nestedFolder.focus();
 	await page.keyboard.press("ArrowRight");
 	await expect(nestedFolder).toHaveAttribute("aria-expanded", "true");
+});
+
+test("file tree selection opens tabs and returns to cached documents", async ({
+	page,
+}) => {
+	await openFolder(page);
 	await page.getByRole("treeitem", { name: "B.markdown", exact: true }).click();
 	await expect(page.getByRole("tab")).toHaveCount(2);
 	await expect(
@@ -339,6 +339,17 @@ test("folder tabs, relative links, local images, no remote requests or HTML exec
 			name: "First document",
 		}),
 	).toBeVisible();
+});
+
+test("reader loads local images without making remote requests or executing raw HTML", async ({
+	page,
+}) => {
+	const remoteRequests = [];
+	page.on("request", (request) => {
+		if (request.url().startsWith("https://"))
+			remoteRequests.push(request.url());
+	});
+	await openFolder(page);
 	await expect(
 		page.frameLocator("#content").getByRole("img", { name: "pixel" }),
 	).toHaveAttribute("src", /^blob:/);
@@ -346,7 +357,13 @@ test("folder tabs, relative links, local images, no remote requests or HTML exec
 		page.frameLocator("#content").locator(".image-note"),
 	).toContainText("外部画像");
 	expect(await page.evaluate(() => window.pwned)).toBeUndefined();
-	expect(remote).toEqual([]);
+	expect(remoteRequests).toEqual([]);
+});
+
+test("reader CSP blocks injected scripts and event handlers", async ({
+	page,
+}) => {
+	await openFolder(page);
 	// Even if active markup reached the iframe, its stricter CSP blocks scripts.
 	await page.evaluate(() => {
 		const doc = document.getElementById("content").contentDocument;
@@ -359,6 +376,12 @@ test("folder tabs, relative links, local images, no remote requests or HTML exec
 		img.dispatchEvent(new Event("error"));
 	});
 	expect(await page.evaluate(() => window.cspBypassed)).toBeUndefined();
+});
+
+test("relative Markdown links open the target document in an app tab", async ({
+	page,
+}) => {
+	await openFolder(page);
 	await page
 		.frameLocator("#content")
 		.getByRole("link", { name: "Next" })
@@ -370,7 +393,7 @@ test("folder tabs, relative links, local images, no remote requests or HTML exec
 	).toBeVisible();
 	await expect(page.getByRole("tab")).toHaveCount(2);
 });
-test("palette keyboard search, source view, close active tab and close all", async ({
+test("palette keyboard search opens the matching document and ignores blank queries", async ({
 	page,
 }) => {
 	await openFolder(page);
@@ -391,6 +414,18 @@ test("palette keyboard search, source view, close active tab and close all", asy
 	await expect(page.locator("#results button")).toHaveCount(1);
 	await page.locator("#command").press("Enter");
 	await expect(page.getByRole("dialog")).not.toBeVisible();
+	await expect(
+		page
+			.frameLocator("#content")
+			.getByRole("heading", { name: "Second document" }),
+	).toBeVisible();
+});
+
+test("source view survives tab closing and closed documents remain in the tree", async ({
+	page,
+}) => {
+	await openFolder(page);
+	await page.getByRole("treeitem", { name: "B.markdown", exact: true }).click();
 	await expect(
 		page
 			.frameLocator("#content")
@@ -598,18 +633,17 @@ test("initial folders remain in the tree after restoring tabs on reload", async 
 	page,
 }) => {
 	const root = await mkdtemp(join(tmpdir(), "viewer-initial-folders-"));
-	const first = join(root, "11_reading_group");
-	const second = join(root, "12_session_synthesis");
+	const first = join(root, "first-folder");
+	const second = join(root, "second-folder");
 	await mkdir(first);
 	await mkdir(second);
 	await writeFile(join(first, "A.md"), "# First note");
 	await writeFile(join(first, "B.md"), "# Unopened note");
 	await writeFile(join(second, "C.md"), "# Selected note");
 	const server = await createViewerServer({ initialPaths: [first, second] });
-	server.listen(0, "127.0.0.1");
-	await once(server, "listening");
+	const url = await listenOnLoopback(server);
 	try {
-		await page.goto(`http://127.0.0.1:${server.address().port}`);
+		await page.goto(url);
 		await expect(page.locator("#file-list .tree-file")).toHaveCount(3);
 		await page.getByRole("treeitem", { name: "C.md", exact: true }).click();
 		await page.reload();
@@ -625,8 +659,7 @@ test("initial folders remain in the tree after restoring tabs on reload", async 
 			}),
 		).toBeVisible();
 	} finally {
-		server.closeAllConnections();
-		await new Promise((resolve) => server.close(resolve));
+		await closeServer(server);
 		await rm(root, { recursive: true, force: true });
 	}
 });
@@ -783,11 +816,11 @@ test("missing paths are recoverable and mobile opening remains usable", async ({
 	await expect(
 		page.getByRole("tree", { name: "ファイルツリー" }),
 	).toBeVisible();
-	expect(
-		await page.evaluate(
-			() => document.documentElement.scrollWidth <= innerWidth,
-		),
-	).toBe(true);
+	const dimensions = await page.evaluate(() => ({
+		scrollWidth: document.documentElement.scrollWidth,
+		viewportWidth: innerWidth,
+	}));
+	expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.viewportWidth);
 });
 
 test("late read responses cannot replace the current document; reload reads disk changes", async ({

@@ -1,6 +1,8 @@
+import { mapSourceText, sourceRangesForSelection } from "./selection.js";
+
 const $ = (id) => document.getElementById(id);
 const token = document.querySelector('meta[name="viewer-token"]').content;
-const available = new Map();
+const availableDocuments = new Map();
 const tabs = new Map();
 const historyTag = "markdown-viewer-v2";
 const savedView = history.state?.viewer === historyTag ? history.state : null;
@@ -10,87 +12,103 @@ if (!savedView)
 		"",
 	);
 let active = null;
-let generation = 0;
+// Render revisions discard late reads/images; navigation revisions also cancel opens/restores.
+let renderRevision = 0;
 let navigationRevision = 0;
 let showSource = false;
 let busy = false;
 let blobUrls = [];
-let paletteIndex = 0;
-let paletteMatches = [];
 let importNumber = 0;
 let highlightSelection = null;
 let highlightListeners = null;
 const collapsedFolders = new Set();
 const filterCollapsedFolders = new Set();
 const MAX_BYTES = 1024 * 1024;
+const MAX_CACHED_TABS = 10;
+const MAX_PAGE_IMAGES = 100;
+const MAX_DIRECTORY_DEPTH = 32;
+const MIN_SIDEBAR_WIDTH_PX = 180;
+const MAX_SIDEBAR_WIDTH_PX = 600;
+const MOBILE_BREAKPOINT_PX = 760;
+// Leave room for the reader plus the six-pixel resize handle.
+const MIN_READER_AND_RESIZER_WIDTH_PX = 326;
 
 const workspace = document.querySelector(".workspace");
-const resizer = $("sidebar-resizer");
-let sidebarWidth = 250;
-let resizeOffset = 0;
-try {
-	const saved = Number(localStorage.getItem("viewer-sidebar-width"));
-	if (Number.isFinite(saved) && saved > 0) sidebarWidth = saved;
-} catch {
-	/* Resizing still works without persistence. */
-}
-let preferredSidebarWidth = sidebarWidth;
-function sidebarMaxWidth() {
-	return Math.max(180, Math.min(600, workspace.clientWidth - 326));
-}
-function setSidebarWidth(width, persist = false) {
-	if (!Number.isFinite(width)) return;
-	sidebarWidth = Math.round(Math.max(180, Math.min(sidebarMaxWidth(), width)));
-	workspace.style.setProperty("--sidebar-width", `${sidebarWidth}px`);
-	resizer.setAttribute("aria-valuemax", String(sidebarMaxWidth()));
-	resizer.setAttribute("aria-valuenow", String(sidebarWidth));
-	if (persist) {
-		preferredSidebarWidth = sidebarWidth;
-		try {
-			localStorage.setItem("viewer-sidebar-width", String(sidebarWidth));
-		} catch {
-			/* Resizing still works without persistence. */
+function initializeSidebarResize() {
+	const resizer = $("sidebar-resizer");
+	let sidebarWidth = 250;
+	let resizeOffset = 0;
+	try {
+		const saved = Number(localStorage.getItem("viewer-sidebar-width"));
+		if (Number.isFinite(saved) && saved > 0) sidebarWidth = saved;
+	} catch {
+		/* Resizing still works without persistence. */
+	}
+	let preferredSidebarWidth = sidebarWidth;
+	function sidebarMaxWidth() {
+		return Math.max(
+			MIN_SIDEBAR_WIDTH_PX,
+			Math.min(
+				MAX_SIDEBAR_WIDTH_PX,
+				workspace.clientWidth - MIN_READER_AND_RESIZER_WIDTH_PX,
+			),
+		);
+	}
+	function setSidebarWidth(width, persist = false) {
+		if (!Number.isFinite(width)) return;
+		sidebarWidth = Math.round(
+			Math.max(MIN_SIDEBAR_WIDTH_PX, Math.min(sidebarMaxWidth(), width)),
+		);
+		workspace.style.setProperty("--sidebar-width", `${sidebarWidth}px`);
+		resizer.setAttribute("aria-valuemax", String(sidebarMaxWidth()));
+		resizer.setAttribute("aria-valuenow", String(sidebarWidth));
+		if (persist) {
+			preferredSidebarWidth = sidebarWidth;
+			try {
+				localStorage.setItem("viewer-sidebar-width", String(sidebarWidth));
+			} catch {
+				/* Resizing still works without persistence. */
+			}
 		}
 	}
+	setSidebarWidth(sidebarWidth);
+	window.addEventListener("resize", () => {
+		if (window.innerWidth > MOBILE_BREAKPOINT_PX)
+			setSidebarWidth(preferredSidebarWidth);
+	});
+	resizer.addEventListener("pointerdown", (event) => {
+		if (event.button !== 0) return;
+		resizeOffset = event.clientX - $("sidebar").getBoundingClientRect().right;
+		resizer.setPointerCapture(event.pointerId);
+		resizer.focus();
+		document.body.classList.add("resizing-sidebar");
+	});
+	resizer.addEventListener("pointermove", (event) => {
+		if (resizer.hasPointerCapture(event.pointerId))
+			setSidebarWidth(
+				event.clientX - workspace.getBoundingClientRect().left - resizeOffset,
+			);
+	});
+	function finishSidebarResize() {
+		document.body.classList.remove("resizing-sidebar");
+		setSidebarWidth(sidebarWidth, true);
+	}
+	resizer.addEventListener("pointerup", finishSidebarResize);
+	resizer.addEventListener("pointercancel", finishSidebarResize);
+	resizer.addEventListener("keydown", (event) => {
+		const widthsByKey = {
+			ArrowLeft: sidebarWidth - 20,
+			ArrowRight: sidebarWidth + 20,
+			Home: MIN_SIDEBAR_WIDTH_PX,
+			End: sidebarMaxWidth(),
+		};
+		const width = widthsByKey[event.key] ?? null;
+		if (width === null) return;
+		event.preventDefault();
+		setSidebarWidth(width, true);
+	});
 }
-setSidebarWidth(sidebarWidth);
-window.addEventListener("resize", () => {
-	if (window.innerWidth > 760) setSidebarWidth(preferredSidebarWidth);
-});
-resizer.addEventListener("pointerdown", (event) => {
-	if (event.button !== 0) return;
-	resizeOffset = event.clientX - $("sidebar").getBoundingClientRect().right;
-	resizer.setPointerCapture(event.pointerId);
-	resizer.focus();
-	document.body.classList.add("resizing-sidebar");
-});
-resizer.addEventListener("pointermove", (event) => {
-	if (resizer.hasPointerCapture(event.pointerId))
-		setSidebarWidth(
-			event.clientX - workspace.getBoundingClientRect().left - resizeOffset,
-		);
-});
-function finishSidebarResize() {
-	document.body.classList.remove("resizing-sidebar");
-	setSidebarWidth(sidebarWidth, true);
-}
-resizer.addEventListener("pointerup", finishSidebarResize);
-resizer.addEventListener("pointercancel", finishSidebarResize);
-resizer.addEventListener("keydown", (event) => {
-	const width =
-		event.key === "ArrowLeft"
-			? sidebarWidth - 20
-			: event.key === "ArrowRight"
-				? sidebarWidth + 20
-				: event.key === "Home"
-					? 180
-					: event.key === "End"
-						? sidebarMaxWidth()
-						: null;
-	if (width === null) return;
-	event.preventDefault();
-	setSidebarWidth(width, true);
-});
+initializeSidebarResize();
 
 let theme = document.documentElement.dataset.theme;
 function applyTheme(value) {
@@ -123,7 +141,7 @@ function status(message, error = false) {
 	$("status").dataset.error = String(error);
 }
 
-async function api(route, body = {}, binary = false) {
+async function api(route, body = {}, { asBlob = false } = {}) {
 	const response = await fetch(`/api/${route}`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json", "X-Viewer-Token": token },
@@ -136,10 +154,10 @@ async function api(route, body = {}, binary = false) {
 				"サーバーに接続できません。再起動後はページを再読み込みしてください。",
 		);
 	}
-	return binary ? response.blob() : response.json();
+	return asBlob ? response.blob() : response.json();
 }
 
-async function action(work) {
+async function runExclusiveAction(work) {
 	if (busy) {
 		status("処理中です。完了してから操作してください。");
 		return;
@@ -180,8 +198,9 @@ function recordView() {
 async function addDocuments(documents) {
 	for (const doc of documents) {
 		const key = keyFor(doc);
-		if (available.has(key)) Object.assign(available.get(key), doc);
-		else available.set(key, doc);
+		if (availableDocuments.has(key))
+			Object.assign(availableDocuments.get(key), doc);
+		else availableDocuments.set(key, doc);
 	}
 	if (documents.length) await activate(keyFor(documents[0]));
 }
@@ -258,7 +277,7 @@ function drawTreeBranch(
 		function toggleFolder() {
 			if (folderState.has(folderKey)) folderState.delete(folderKey);
 			else folderState.add(folderKey);
-			drawTabs();
+			drawNavigation();
 			[...$("file-list").querySelectorAll(".tree-folder")]
 				.find((item) => item.dataset.folderKey === folderKey)
 				?.focus();
@@ -270,16 +289,14 @@ function drawTreeBranch(
 			if (event.target !== folder) return;
 			if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)
 				return;
-			if (event.key === "Enter" || event.key === " ") {
-				event.preventDefault();
-				toggleFolder();
-			} else if (event.key === "ArrowRight" && !expanded) {
-				event.preventDefault();
-				toggleFolder();
-			} else if (event.key === "ArrowLeft" && expanded) {
-				event.preventDefault();
-				toggleFolder();
-			}
+			const shouldToggle =
+				event.key === "Enter" ||
+				event.key === " " ||
+				(event.key === "ArrowRight" && !expanded) ||
+				(event.key === "ArrowLeft" && expanded);
+			if (!shouldToggle) return;
+			event.preventDefault();
+			toggleFolder();
 		});
 		folder.setAttribute("role", "treeitem");
 		folder.setAttribute("aria-expanded", String(expanded));
@@ -305,13 +322,8 @@ function drawTreeBranch(
 	}
 }
 
-function drawTabs() {
-	$("count").textContent = String(available.size);
-	workspace.dataset.hasDocuments = String(available.size > 0);
+function drawOpenTabs() {
 	$("tabs").replaceChildren();
-	$("file-list").replaceChildren();
-	const query = $("filter").value.trim().toLocaleLowerCase();
-	const visibleDocuments = [];
 	for (const [key, doc] of tabs) {
 		const tab = button(doc.name, () => activate(key));
 		tab.setAttribute("role", "tab");
@@ -328,7 +340,16 @@ function drawTabs() {
 		group.append(tab, close);
 		$("tabs").append(group);
 	}
-	for (const [key, doc] of available)
+}
+
+function drawNavigation() {
+	$("count").textContent = String(availableDocuments.size);
+	workspace.dataset.hasDocuments = String(availableDocuments.size > 0);
+	drawOpenTabs();
+	$("file-list").replaceChildren();
+	const query = $("filter").value.trim().toLocaleLowerCase();
+	const visibleDocuments = [];
+	for (const [key, doc] of availableDocuments)
 		if (`${doc.label} ${doc.path ?? ""}`.toLocaleLowerCase().includes(query))
 			visibleDocuments.push([key, doc]);
 	drawTreeBranch(
@@ -349,11 +370,15 @@ function drawTabs() {
 	}
 }
 
+function hideHighlightToolbar() {
+	highlightSelection = null;
+	$("highlight-toolbar").hidden = true;
+}
+
 function clearReader() {
 	highlightListeners?.abort();
 	highlightListeners = null;
-	highlightSelection = null;
-	$("highlight-toolbar").hidden = true;
+	hideHighlightToolbar();
 	for (const url of blobUrls) URL.revokeObjectURL(url);
 	blobUrls = [];
 	$("outline").replaceChildren();
@@ -367,95 +392,6 @@ function clearReader() {
 	$("content").replaceWith(frame);
 }
 
-function mapSourceText(frameDocument, source) {
-	const positions = new WeakMap();
-	const nodes = [];
-	let cursor = 0;
-	const walker = frameDocument.createTreeWalker(
-		frameDocument.body,
-		NodeFilter.SHOW_TEXT,
-	);
-	for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-		nodes.push(node);
-		if (!node.data || node.parentElement?.closest("pre, code, script, style"))
-			continue;
-		const start = source.indexOf(node.data, cursor);
-		if (start < 0) continue;
-		const escaped = start > 0 && source[start - 1] === "\\";
-		const entity = source
-			.slice(start)
-			.match(/^&(?:#[0-9]{1,7}|#x[a-f0-9]{1,6}|[a-z][a-z0-9]{1,31});/i);
-		cursor = start + node.data.length;
-		if (escaped || (entity && entity[0] !== node.data)) continue;
-		positions.set(node, { start, end: cursor });
-	}
-	return { nodes, positions };
-}
-
-function sourceRangesForSelection(selection, mapping, source) {
-	if (!selection || selection.isCollapsed || selection.rangeCount !== 1)
-		return null;
-	const range = selection.getRangeAt(0);
-	function textBoundary(container, offset, start) {
-		if (container.nodeType === Node.TEXT_NODE)
-			return { node: container, offset };
-		if (container.nodeType !== Node.ELEMENT_NODE) return null;
-		let candidate = container.childNodes[start ? offset : offset - 1];
-		while (candidate && candidate.nodeType !== Node.TEXT_NODE) {
-			candidate = start ? candidate.firstChild : candidate.lastChild;
-		}
-		return candidate
-			? { node: candidate, offset: start ? 0 : candidate.data.length }
-			: null;
-	}
-	const start = textBoundary(range.startContainer, range.startOffset, true);
-	const end = textBoundary(range.endContainer, range.endOffset, false);
-	if (!start || !end) return null;
-	const startIndex = mapping.nodes.indexOf(start.node);
-	const endIndex = mapping.nodes.indexOf(end.node);
-	if (startIndex < 0 || endIndex < startIndex) return null;
-	const ranges = [];
-	for (let index = startIndex; index <= endIndex; index++) {
-		const node = mapping.nodes[index];
-		const from = index === startIndex ? start.offset : 0;
-		const to = index === endIndex ? end.offset : node.data.length;
-		if (to <= from) continue;
-		const position = mapping.positions.get(node);
-		if (!position) return null;
-		const sourceStart = position.start + from;
-		const sourceEnd = position.start + to;
-		const text = source.slice(sourceStart, sourceEnd);
-		if (!text || text !== node.data.slice(from, to)) return null;
-		ranges.push({ start: sourceStart, end: sourceEnd, text });
-	}
-	if (!ranges.length) return null;
-	const marks = [
-		...range.startContainer.ownerDocument.querySelectorAll(
-			"mark[data-mdv-color]",
-		),
-	].filter((mark) => range.intersectsNode(mark));
-	if (!marks.length) return { ranges, marker: null };
-	const startMark = start.node.parentElement?.closest("mark[data-mdv-color]");
-	const endMark = end.node.parentElement?.closest("mark[data-mdv-color]");
-	if (marks.length !== 1 || !startMark || startMark !== endMark) return null;
-	const color = startMark.dataset.mdvColor;
-	const openTag = `<mark data-mdv-color="${color}">`;
-	const first = ranges[0].start;
-	const last = ranges.at(-1).end;
-	const markerStart = source.lastIndexOf(openTag, first);
-	const closeStart = source.indexOf("</mark>", last);
-	if (
-		markerStart < 0 ||
-		closeStart < last ||
-		source.slice(markerStart + openTag.length, first).includes("</mark>")
-	)
-		return null;
-	return {
-		ranges,
-		marker: { start: markerStart, end: closeStart + 7, color },
-	};
-}
-
 function watchHighlightSelection(frameDocument, doc, revision) {
 	const mapping = mapSourceText(frameDocument, doc.source);
 	const frame = frameDocument.defaultView.frameElement;
@@ -463,7 +399,7 @@ function watchHighlightSelection(frameDocument, doc, revision) {
 	const controller = new AbortController();
 	highlightListeners = controller;
 	const position = () => {
-		if (toolbar.hidden || revision !== generation) return;
+		if (toolbar.hidden || revision !== renderRevision) return;
 		const selection = frameDocument.getSelection();
 		if (!selection?.rangeCount || selection.isCollapsed) return;
 		const frameRect = frame.getBoundingClientRect();
@@ -477,8 +413,17 @@ function watchHighlightSelection(frameDocument, doc, revision) {
 		const bottom = frameRect.top + rect.bottom;
 		const width = toolbar.offsetWidth;
 		const height = toolbar.offsetHeight;
-		toolbar.style.left = `${Math.max(8, Math.min(innerWidth - width - 8, x - width / 2))}px`;
-		toolbar.style.top = `${top - height - 10 >= 8 ? top - height - 10 : Math.min(innerHeight - height - 8, bottom + 10)}px`;
+		const viewportMarginPx = 8;
+		const selectionGapPx = 10;
+		const centeredLeft = x - width / 2;
+		const maxLeft = innerWidth - width - viewportMarginPx;
+		const aboveSelection = top - height - selectionGapPx;
+		const belowSelection = Math.min(
+			innerHeight - height - viewportMarginPx,
+			bottom + selectionGapPx,
+		);
+		toolbar.style.left = `${Math.max(viewportMarginPx, Math.min(maxLeft, centeredLeft))}px`;
+		toolbar.style.top = `${aboveSelection >= viewportMarginPx ? aboveSelection : belowSelection}px`;
 		toolbar.style.visibility =
 			bottom < Math.max(0, frameRect.top) ||
 			top > Math.min(innerHeight, frameRect.bottom)
@@ -486,15 +431,14 @@ function watchHighlightSelection(frameDocument, doc, revision) {
 				: "visible";
 	};
 	const update = () => {
-		if (revision !== generation || showSource) return;
+		if (revision !== renderRevision || showSource) return;
 		const selected = sourceRangesForSelection(
 			frameDocument.getSelection(),
 			mapping,
 			doc.source,
 		);
 		if (!selected) {
-			highlightSelection = null;
-			$("highlight-toolbar").hidden = true;
+			hideHighlightToolbar();
 			return;
 		}
 		highlightSelection = { key: keyFor(doc), revision, ...selected };
@@ -540,12 +484,13 @@ async function applyHighlight(color) {
 	if (
 		!doc ||
 		doc.file ||
-		selected.revision !== generation ||
+		selected.revision !== renderRevision ||
 		selected.key !== active
 	)
 		throw new Error("文章を選択し直してください。");
 	const scrollTop = $("content").contentWindow?.scrollY ?? 0;
-	const mode = selected.marker ? (color ? "recolor" : "remove") : "add";
+	let mode = "add";
+	if (selected.marker) mode = color ? "recolor" : "remove";
 	if (!color && !selected.marker)
 		throw new Error("外すマーカーを選択してください。");
 	if (mode === "recolor" && color === selected.marker.color) {
@@ -561,16 +506,16 @@ async function applyHighlight(color) {
 		version: doc.version,
 	});
 	Object.assign(doc, updated, { loaded: true });
-	highlightSelection = null;
-	$("highlight-toolbar").hidden = true;
-	await activate(active, undefined, true, scrollTop);
-	status(
-		mode === "remove"
-			? "マーカーを外しました。"
-			: mode === "recolor"
-				? "マーカーの色を変更しました。"
-				: "マーカーを保存しました。",
-	);
+	// Saving may finish after navigation; update the saved document, not the new reader.
+	if (selected.revision !== renderRevision || selected.key !== active) return;
+	hideHighlightToolbar();
+	await activate(selected.key, { scrollTop });
+	const messagesByMode = {
+		add: "マーカーを保存しました。",
+		recolor: "マーカーの色を変更しました。",
+		remove: "マーカーを外しました。",
+	};
+	status(messagesByMode[mode]);
 }
 
 function closeTab(key) {
@@ -587,16 +532,16 @@ function closeTab(key) {
 		showEmpty("タブを閉じました。");
 		return;
 	}
-	drawTabs();
+	drawNavigation();
 	recordView();
 }
 
-function showEmpty(message, record = true) {
+function showEmpty(message, { record = true } = {}) {
 	active = null;
-	generation++;
+	renderRevision++;
 	setFocusMode(false);
 	clearReader();
-	drawTabs();
+	drawNavigation();
 	document.title = "Markdown Viewer";
 	status(message);
 	if (record) recordView();
@@ -606,20 +551,20 @@ async function restoreView(state) {
 	const revision = ++navigationRevision;
 	if ($("palette").open) $("palette").close();
 	tabs.clear();
-	showEmpty("履歴から復元しています…", false);
+	showEmpty("履歴から復元しています…", { record: false });
 	const paths = new Map((state?.paths ?? []).map((doc) => [doc.path, doc]));
 	let missingPaths = 0;
 	let missingImports = 0;
 	let restoreError = "";
 	for (const key of state?.tabs ?? []) {
 		if (revision !== navigationRevision) return;
-		let doc = available.get(key);
+		let doc = availableDocuments.get(key);
 		if (!doc && paths.has(key)) {
 			try {
 				const saved = paths.get(key);
 				doc = (await api("restore", saved)).document;
 				if (revision !== navigationRevision) return;
-				available.set(keyFor(doc), doc);
+				availableDocuments.set(keyFor(doc), doc);
 			} catch (error) {
 				missingPaths++;
 				restoreError ||= error.message;
@@ -633,7 +578,7 @@ async function restoreView(state) {
 			? state.active
 			: [...tabs.keys()].at(-1);
 	if (selected) {
-		await activate(selected, undefined, false);
+		await activate(selected, { record: false });
 		if (revision !== navigationRevision) return;
 		if (missingPaths)
 			status(`履歴の一部を復元できませんでした。${restoreError}`, true);
@@ -641,16 +586,13 @@ async function restoreView(state) {
 			status("ブラウザーから選択したファイルは再度取り込んでください。");
 		return;
 	}
-	showEmpty(
-		missingPaths
-			? `履歴のパスを復元できませんでした。${restoreError}`
-			: missingImports
-				? "ブラウザーから選択したファイルは再度取り込んでください。"
-				: available.size
-					? "ファイル一覧から選択できます。"
-					: "パス入力・ファイル選択・ドラッグ＆ドロップに対応しています。",
-		false,
-	);
+	let message = "パス入力・ファイル選択・ドラッグ＆ドロップに対応しています。";
+	if (missingPaths)
+		message = `履歴のパスを復元できませんでした。${restoreError}`;
+	else if (missingImports)
+		message = "ブラウザーから選択したファイルは再度取り込んでください。";
+	else if (availableDocuments.size) message = "ファイル一覧から選択できます。";
+	showEmpty(message, { record: false });
 }
 
 window.addEventListener("popstate", (event) => {
@@ -658,7 +600,7 @@ window.addEventListener("popstate", (event) => {
 	void restoreView(event.state);
 });
 
-function localHref(href, label) {
+function resolveImportedLabel(href, label) {
 	if (/^(?:[a-z][a-z\d+.-]*:|\/|\\)/i.test(href)) return null;
 	const base = new URL(
 		label.split("/").map(encodeURIComponent).join("/"),
@@ -671,19 +613,19 @@ function localHref(href, label) {
 async function followLink(doc, href) {
 	const revision = navigationRevision;
 	if (doc.files) {
-		const label = localHref(href, doc.label);
-		const target = [...available.entries()].find(
+		const label = resolveImportedLabel(href, doc.label);
+		const target = [...availableDocuments.entries()].find(
 			([, item]) => item.files === doc.files && item.label === label,
 		);
 		if (!target)
 			throw new Error("リンク先の Markdown もファイル選択から開いてください。");
-		await activate(target[0], href.split("#")[1]);
+		await activate(target[0], { hash: href.split("#")[1] });
 	} else {
 		const data = await api("related", { id: doc.id, href });
 		if (revision !== navigationRevision) return;
 		await addDocuments(data.documents);
 		if (href.includes("#"))
-			await activate(keyFor(data.documents[0]), href.split("#")[1]);
+			await activate(keyFor(data.documents[0]), { hash: href.split("#")[1] });
 	}
 }
 
@@ -695,8 +637,8 @@ function jumpTo(frameDocument, hash) {
 	}
 }
 
-async function decorate(frameDocument, doc, revision, hash) {
-	const used = new Set();
+function buildOutline(frameDocument) {
+	const usedHeadingIds = new Set();
 	for (const heading of frameDocument.querySelectorAll("h1,h2,h3,h4,h5,h6")) {
 		const base =
 			heading.textContent
@@ -706,14 +648,17 @@ async function decorate(frameDocument, doc, revision, hash) {
 				.replace(/\s/g, "-") || "section";
 		let slug = base;
 		let suffix = 0;
-		while (used.has(slug)) slug = `${base}-${++suffix}`;
-		used.add(slug);
+		while (usedHeadingIds.has(slug)) slug = `${base}-${++suffix}`;
+		usedHeadingIds.add(slug);
 		heading.id = slug;
 		const item = button(heading.textContent, () =>
 			heading.scrollIntoView({ behavior: "smooth" }),
 		);
 		$("outline").append(item);
 	}
+}
+
+function enableReaderLinks(frameDocument, doc) {
 	for (const link of frameDocument.querySelectorAll("a[data-link]")) {
 		const href = link.dataset.link;
 		if (/^https?:\/\//i.test(href) || /^mailto:/i.test(href)) {
@@ -725,23 +670,26 @@ async function decorate(frameDocument, doc, revision, hash) {
 			link.addEventListener("click", (event) => {
 				event.preventDefault();
 				if (href.startsWith("#")) jumpTo(frameDocument, href.slice(1));
-				else action(() => followLink(doc, href));
+				else runExclusiveAction(() => followLink(doc, href));
 			});
 		}
 	}
-	if (hash) jumpTo(frameDocument, hash);
-	// Sequential, bounded image loading avoids a burst of hundreds of requests.
-	let images = 0;
+}
+
+// Sequential, bounded image loading avoids a burst of hundreds of requests.
+async function loadReaderImages(frameDocument, doc, revision) {
+	let imageCount = 0;
 	for (const img of frameDocument.querySelectorAll("img[data-image]")) {
-		if (revision !== generation) return;
+		if (revision !== renderRevision) return;
 		const href = img.dataset.image;
 		try {
-			if (++images > 100) throw new Error("画像は 1 ページ 100 件までです。");
+			if (++imageCount > MAX_PAGE_IMAGES)
+				throw new Error("画像は 1 ページ 100 件までです。");
 			if (/^(?:[a-z][a-z\d+.-]*:|\/|\\)/i.test(href))
 				throw new Error("外部画像・絶対パス画像は読み込みません。");
 			let blob;
 			if (doc.files) {
-				const label = localHref(href, doc.label);
+				const label = resolveImportedLabel(href, doc.label);
 				const file = doc.files.get(label);
 				if (!file || !/\.(png|jpe?g|gif|webp|avif)$/i.test(label))
 					throw new Error(
@@ -753,8 +701,8 @@ async function decorate(frameDocument, doc, revision, hash) {
 				blob = new Blob([await file.arrayBuffer()], {
 					type: `image/${extension === "jpg" ? "jpeg" : extension}`,
 				});
-			} else blob = await api("image", { id: doc.id, href }, true);
-			if (revision !== generation) return;
+			} else blob = await api("image", { id: doc.id, href }, { asBlob: true });
+			if (revision !== renderRevision) return;
 			const url = URL.createObjectURL(blob);
 			blobUrls.push(url);
 			img.src = url;
@@ -767,15 +715,86 @@ async function decorate(frameDocument, doc, revision, hash) {
 	}
 }
 
-async function activate(key, hash, record = true, scrollTop = 0) {
-	const doc = available.get(key);
+async function loadDocumentContent(doc) {
+	if (doc.loaded) return;
+	if (doc.file) {
+		if (doc.file.size > MAX_BYTES)
+			throw new Error("Markdown の上限は 1 MiB です。");
+		doc.source = await doc.file.text();
+		doc.html = (await api("render", { source: doc.source })).html;
+	} else Object.assign(doc, await api("read", { id: doc.id }));
+	doc.loaded = true;
+}
+
+function evictOldTabContent(currentDoc) {
+	// Retain content only for recently viewed tabs; metadata remains available.
+	currentDoc.lastViewed = Date.now();
+	const cached = [...tabs.values()]
+		.filter((doc) => doc.loaded)
+		.sort((left, right) => right.lastViewed - left.lastViewed);
+	for (const doc of cached.slice(MAX_CACHED_TABS)) {
+		if (doc === currentDoc) continue;
+		delete doc.html;
+		delete doc.source;
+		doc.loaded = false;
+	}
+}
+
+function createReaderFrame(doc, revision, { hash, scrollTop }) {
+	const frame = document.createElement("iframe");
+	frame.id = "content";
+	frame.title = "Markdown 本文";
+	frame.setAttribute(
+		"sandbox",
+		"allow-same-origin allow-scripts allow-popups allow-popups-to-escape-sandbox",
+	);
+	let content = doc.html;
+	if (showSource) {
+		const pre = document.createElement("pre");
+		pre.className = "source";
+		pre.textContent = doc.source;
+		content = pre.outerHTML;
+	}
+	frame.onload = () => {
+		if (revision !== renderRevision) return;
+		const readerDocument = frame.contentDocument;
+		readerDocument.documentElement.dataset.theme = theme;
+		readerDocument.addEventListener("keydown", shortcuts);
+		readerDocument.addEventListener("dragover", handleDragOver);
+		readerDocument.addEventListener("drop", handleDrop);
+		if (!showSource) {
+			watchHighlightSelection(readerDocument, doc, revision);
+			buildOutline(readerDocument);
+			enableReaderLinks(readerDocument, doc);
+			if (hash) jumpTo(readerDocument, hash);
+			loadReaderImages(readerDocument, doc, revision).catch((error) =>
+				status(error.message, true),
+			);
+		}
+		if (scrollTop) frame.contentWindow.scrollTo(0, scrollTop);
+	};
+	// WebKit needs allow-scripts for parent-installed listeners; the document CSP forbids execution.
+	frame.srcdoc = `<!doctype html>
+<html lang="ja" data-theme="${theme}">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'self'; img-src blob:; base-uri 'none'; form-action 'none'">
+<link rel="stylesheet" href="${location.origin}/reader.css">
+</head>
+<body>${content}</body>
+</html>`;
+	return frame;
+}
+
+async function activate(key, { hash, record = true, scrollTop = 0 } = {}) {
+	const doc = availableDocuments.get(key);
 	if (!doc) return;
 	tabs.set(key, doc);
 	active = key;
 	if (record) recordView();
-	const revision = ++generation;
+	const revision = ++renderRevision;
 	clearReader();
-	drawTabs();
+	drawNavigation();
 	$("document-path").textContent = doc.path ?? `選択したファイル: ${doc.label}`;
 	$("document-path").title = doc.path ?? doc.label;
 	$("reload").disabled = Boolean(doc.file);
@@ -787,71 +806,25 @@ async function activate(key, hash, record = true, scrollTop = 0) {
 	document.title = `${doc.name} — Markdown Viewer`;
 	status("読み込み中…");
 	try {
-		if (!doc.loaded) {
-			if (doc.file) {
-				if (doc.file.size > MAX_BYTES)
-					throw new Error("Markdown の上限は 1 MiB です。");
-				doc.source = await doc.file.text();
-				doc.html = (await api("render", { source: doc.source })).html;
-			} else Object.assign(doc, await api("read", { id: doc.id }));
-			doc.loaded = true;
-		}
-		if (revision !== generation) return;
-		// Keep content for only the ten most recently viewed tabs; other tabs are lazy.
-		doc.lastViewed = Date.now();
-		const cached = [...tabs.values()]
-			.filter((item) => item.loaded)
-			.sort((a, b) => b.lastViewed - a.lastViewed);
-		for (const item of cached.slice(10)) {
-			if (item !== doc) {
-				delete item.html;
-				delete item.source;
-				item.loaded = false;
-			}
-		}
-		const frame = document.createElement("iframe");
-		frame.id = "content";
-		frame.title = "Markdown 本文";
-		frame.setAttribute(
-			"sandbox",
-			"allow-same-origin allow-scripts allow-popups allow-popups-to-escape-sandbox",
+		await loadDocumentContent(doc);
+		if (revision !== renderRevision) return;
+		evictOldTabContent(doc);
+		$("content").replaceWith(
+			createReaderFrame(doc, revision, { hash, scrollTop }),
 		);
-		let content = doc.html;
-		if (showSource) {
-			const pre = document.createElement("pre");
-			pre.className = "source";
-			pre.textContent = doc.source;
-			content = pre.outerHTML;
-		}
-		frame.onload = () => {
-			if (revision === generation) {
-				const child = frame.contentDocument;
-				child.documentElement.dataset.theme = theme;
-				child.addEventListener("keydown", shortcuts);
-				child.addEventListener("dragover", handleDragOver);
-				child.addEventListener("drop", handleDrop);
-				if (!showSource) {
-					watchHighlightSelection(child, doc, revision);
-					decorate(child, doc, revision, hash).catch((error) =>
-						status(error.message, true),
-					);
-				}
-				if (scrollTop) frame.contentWindow.scrollTo(0, scrollTop);
-			}
-		};
-		// WebKit needs allow-scripts for parent-installed event listeners. A stricter
-		// document CSP still forbids ALL script sources and inline execution.
-		frame.srcdoc = `<!doctype html><html lang="ja" data-theme="${theme}"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'self'; img-src blob:; base-uri 'none'; form-action 'none'"><link rel="stylesheet" href="${location.origin}/reader.css"></head><body>${content}</body></html>`;
-		$("content").replaceWith(frame);
-		if (revision === generation)
+		if (revision === renderRevision)
 			status(
 				doc.file
 					? "選択時点の内容です。更新後はファイルを選び直してください。"
-					: "読み取り専用 · 更新後は「再読み込み」",
+					: "本文編集なし · マーカー保存可 · 更新後は「再読み込み」",
 			);
 	} catch (error) {
-		if (revision === generation) status(error.message, true);
+		if (revision === renderRevision) status(error.message, true);
 	}
+}
+
+function importedFileLabel(file) {
+	return file.webkitRelativePath || file.relativePath || file.name;
 }
 
 async function importFiles(files) {
@@ -864,34 +837,30 @@ async function importFiles(files) {
 		);
 	if (files.reduce((size, file) => size + file.size, 0) > 50 * MAX_BYTES)
 		throw new Error("選択したファイルの合計上限は 50 MiB です。");
-	const fileMap = new Map(
-		files.map((file) => [
-			file.webkitRelativePath || file.relativePath || file.name,
-			file,
-		]),
-	);
+	const fileMap = new Map(files.map((file) => [importedFileLabel(file), file]));
 	const batch = ++importNumber;
 	const docs = selected
-		.sort((a, b) =>
-			(a.webkitRelativePath || a.relativePath || a.name).localeCompare(
-				b.webkitRelativePath || b.relativePath || b.name,
-			),
+		.sort((left, right) =>
+			importedFileLabel(left).localeCompare(importedFileLabel(right)),
 		)
 		.map((file, index) => ({
 			id: `import-${batch}-${index}`,
 			name: file.name,
-			label: file.webkitRelativePath || file.relativePath || file.name,
+			label: importedFileLabel(file),
 			file,
 			files: fileMap,
 		}));
 	await addDocuments(docs);
 }
 
+let paletteIndex = 0;
+let paletteMatches = [];
+
 function updatePalette() {
 	const query = $("command").value.trim().toLocaleLowerCase();
 	paletteMatches = !query
 		? []
-		: [...available.entries()]
+		: [...availableDocuments.entries()]
 				.filter(([, doc]) =>
 					`${doc.label} ${doc.path ?? ""}`.toLocaleLowerCase().includes(query),
 				)
@@ -926,12 +895,10 @@ function setFocusMode(enabled) {
 		: "全画面表示 (⌘⇧F / Ctrl+Shift+F)";
 }
 function shortcuts(event) {
-	if (
-		(event.metaKey || event.ctrlKey) &&
-		event.shiftKey &&
-		!event.altKey &&
-		event.key.toLowerCase() === "f"
-	) {
+	const isCommandShift =
+		(event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey;
+	const key = event.key.toLowerCase();
+	if (isCommandShift && key === "f") {
 		if (!active) return;
 		event.preventDefault();
 		setFocusMode(!document.body.classList.contains("focus-mode"));
@@ -940,19 +907,13 @@ function shortcuts(event) {
 	if (event.key === "Escape" && !$("palette").open) {
 		if (!$("highlight-toolbar").hidden) {
 			$("content").contentWindow?.getSelection()?.removeAllRanges();
-			highlightSelection = null;
-			$("highlight-toolbar").hidden = true;
+			hideHighlightToolbar();
 			return;
 		}
 		setFocusMode(false);
 		return;
 	}
-	if (
-		(event.metaKey || event.ctrlKey) &&
-		event.shiftKey &&
-		!event.altKey &&
-		event.key.toLowerCase() === "p"
-	) {
+	if (isCommandShift && key === "p") {
 		event.preventDefault();
 		openPalette();
 	}
@@ -987,15 +948,16 @@ $("palette-form").addEventListener("submit", (event) => {
 	if (paletteMatches.length && !/^(?:\/|~|\.|[a-z]:[\\/])/i.test(value)) {
 		$("palette").close();
 		activate(paletteMatches[paletteIndex][0]);
-	} else action(() => openPath(value, $("palette-recursive").checked));
+	} else
+		runExclusiveAction(() => openPath(value, $("palette-recursive").checked));
 });
 $("open-form").addEventListener("submit", (event) => {
 	event.preventDefault();
-	action(() => openPath($("path").value, $("recursive").checked));
+	runExclusiveAction(() => openPath($("path").value, $("recursive").checked));
 });
 $("filter").addEventListener("input", () => {
 	filterCollapsedFolders.clear();
-	drawTabs();
+	drawNavigation();
 });
 $("file-list").addEventListener("keydown", (event) => {
 	if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
@@ -1006,18 +968,13 @@ $("file-list").addEventListener("keydown", (event) => {
 	if (!items.length) return;
 	event.preventDefault();
 	const index = items.indexOf(document.activeElement);
-	const next =
-		event.key === "Home"
-			? 0
-			: event.key === "End"
-				? items.length - 1
-				: Math.max(
-						0,
-						Math.min(
-							items.length - 1,
-							index + (event.key === "ArrowDown" ? 1 : -1),
-						),
-					);
+	let next;
+	if (event.key === "Home") next = 0;
+	else if (event.key === "End") next = items.length - 1;
+	else {
+		const direction = event.key === "ArrowDown" ? 1 : -1;
+		next = Math.max(0, Math.min(items.length - 1, index + direction));
+	}
 	items[next].focus();
 });
 document.addEventListener("keydown", (event) => {
@@ -1041,7 +998,7 @@ document.addEventListener("keydown", (event) => {
 	const focusKey = [...tree.children].find((folder) =>
 		folder.contains(document.activeElement),
 	)?.dataset.folderKey;
-	drawTabs();
+	drawNavigation();
 	if (focusKey)
 		[...tree.querySelectorAll(".tree-folder")]
 			.find((folder) => folder.dataset.folderKey === focusKey)
@@ -1065,7 +1022,7 @@ for (const id of ["files", "folder"])
 	$(id).addEventListener("change", (event) => {
 		const files = [...event.target.files];
 		event.target.value = "";
-		if (files.length) action(() => importFiles(files));
+		if (files.length) runExclusiveAction(() => importFiles(files));
 	});
 $("close-all").addEventListener("click", () => {
 	tabs.clear();
@@ -1089,18 +1046,17 @@ document.addEventListener("pointerdown", (event) => {
 		!$("highlight-toolbar").contains(event.target)
 	) {
 		$("content").contentWindow?.getSelection()?.removeAllRanges();
-		highlightSelection = null;
-		$("highlight-toolbar").hidden = true;
+		hideHighlightToolbar();
 	}
 });
 $("highlight-toolbar").addEventListener("click", (event) => {
 	if (event.target.closest("#highlight-remove")) {
-		action(() => applyHighlight(null));
+		runExclusiveAction(() => applyHighlight(null));
 		return;
 	}
 	const color = event.target.closest("[data-highlight-color]")?.dataset
 		.highlightColor;
-	if (color) action(() => applyHighlight(color));
+	if (color) runExclusiveAction(() => applyHighlight(color));
 });
 $("tabs").addEventListener("keydown", (event) => {
 	const keys = [...tabs.keys()];
@@ -1123,7 +1079,8 @@ $("tabs").addEventListener("keydown", (event) => {
 async function droppedFiles(items) {
 	const files = [];
 	async function walk(entry, prefix = "", depth = 0) {
-		if (depth > 32) throw new Error("フォルダーの範囲を絞ってください。");
+		if (depth > MAX_DIRECTORY_DEPTH)
+			throw new Error("フォルダーの範囲を絞ってください。");
 		if (entry.isFile) {
 			const file = await new Promise((resolve, reject) =>
 				entry.file(resolve, reject),
@@ -1170,18 +1127,18 @@ function handleDrop(event) {
 			entry: item.webkitGetAsEntry?.(),
 			file: item.getAsFile(),
 		}));
-	action(async () => importFiles(await droppedFiles(items)));
+	runExclusiveAction(async () => importFiles(await droppedFiles(items)));
 }
 document.addEventListener("drop", handleDrop);
-action(async () => {
+runExclusiveAction(async () => {
 	if (savedView) {
 		await restoreView(savedView);
 		const data = await api("initial");
 		for (const doc of data.documents) {
 			const key = keyFor(doc);
-			if (!available.has(key)) available.set(key, doc);
+			if (!availableDocuments.has(key)) availableDocuments.set(key, doc);
 		}
-		drawTabs();
+		drawNavigation();
 		return;
 	}
 	const revision = navigationRevision;

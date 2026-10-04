@@ -7,12 +7,13 @@ import { renderMarkdown } from "./render.mjs";
 const assets = new Map([
 	["/", ["index.html", "text/html; charset=utf-8"]],
 	["/app.js", ["app.js", "text/javascript; charset=utf-8"]],
+	["/selection.js", ["selection.js", "text/javascript; charset=utf-8"]],
 	["/theme.js", ["theme.js", "text/javascript; charset=utf-8"]],
 	["/theme.css", ["theme.css", "text/css; charset=utf-8"]],
 	["/style.css", ["style.css", "text/css; charset=utf-8"]],
 	["/reader.css", ["reader.css", "text/css; charset=utf-8"]],
 ]);
-const csp =
+const contentSecurityPolicy =
 	"default-src 'none'; script-src 'self'; style-src 'self'; img-src blob:; connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 const withoutHighlights = (html) =>
@@ -23,22 +24,55 @@ const withoutHighlights = (html) =>
 async function readJson(request) {
 	if (request.headers["content-type"] !== "application/json")
 		throw new ViewerError("JSON が必要です。", 415);
-	const parts = [];
-	let bytes = 0;
-	for await (const part of request) {
-		bytes += part.length;
-		if (bytes > 2 * MAX_FILE_BYTES)
+	const chunks = [];
+	let receivedBytes = 0;
+	// Highlight requests contain selected text as well as offsets and metadata.
+	const maxRequestBytes = 2 * MAX_FILE_BYTES;
+	for await (const chunk of request) {
+		receivedBytes += chunk.length;
+		if (receivedBytes > maxRequestBytes)
 			throw new ViewerError("リクエストが大きすぎます。", 413);
-		parts.push(part);
+		chunks.push(chunk);
 	}
 	try {
-		const value = JSON.parse(Buffer.concat(parts).toString("utf8"));
+		const value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
 		if (!value || typeof value !== "object" || Array.isArray(value))
 			throw new Error();
 		return value;
 	} catch {
 		throw new ViewerError("JSON の形式が不正です。");
 	}
+}
+
+function viewerErrorResponse(error) {
+	if (error instanceof ViewerError)
+		return { status: error.status, message: error.message };
+	if (["ENOENT", "ENOTDIR"].includes(error.code))
+		return {
+			status: 404,
+			message:
+				"パスが見つかりません。移動・削除されていないか確認してください。",
+		};
+	if (error.code === "EACCES")
+		return { status: 403, message: "読み取り権限がありません。" };
+	return {
+		status: 500,
+		message: "読み取れませんでした。パスとファイルを確認してください。",
+	};
+}
+
+function validateRequestOrigin(request, allowedOrigin, port) {
+	const host = request.headers.host;
+	const origin = allowedOrigin ?? `http://${host}`;
+	const isAllowedHost = allowedOrigin
+		? host === new URL(allowedOrigin).host
+		: host === `127.0.0.1:${port}` || host === `localhost:${port}`;
+	if (!isAllowedHost) throw new ViewerError("Host が許可されていません。", 403);
+	if (request.headers.origin && request.headers.origin !== origin)
+		throw new ViewerError("別のサイトからは操作できません。", 403);
+	const fetchSite = request.headers["sec-fetch-site"];
+	if (fetchSite && !["same-origin", "none"].includes(fetchSite))
+		throw new ViewerError("別のサイトからはアクセスできません。", 403);
 }
 
 export async function createViewerServer({
@@ -70,6 +104,7 @@ export async function createViewerServer({
 			initial.push(doc);
 	}
 	const token = randomBytes(32).toString("hex");
+	const expectedTokenBytes = Buffer.from(token);
 	const staticFiles = new Map(
 		await Promise.all(
 			[...assets].map(async ([route, [file, type]]) => [
@@ -90,7 +125,7 @@ export async function createViewerServer({
 	const server = createServer(
 		{ maxHeaderSize: 8192, requestTimeout: 10000, headersTimeout: 10000 },
 		async (request, response) => {
-			response.setHeader("Content-Security-Policy", csp);
+			response.setHeader("Content-Security-Policy", contentSecurityPolicy);
 			response.setHeader("X-Content-Type-Options", "nosniff");
 			response.setHeader("Referrer-Policy", "no-referrer");
 			response.setHeader("Cache-Control", "no-store");
@@ -102,41 +137,29 @@ export async function createViewerServer({
 			);
 			function send(status, data, type = "application/json; charset=utf-8") {
 				response.writeHead(status, { "Content-Type": type });
-				response.end(
-					request.method === "HEAD"
-						? undefined
-						: type.startsWith("application/json")
-							? JSON.stringify(data)
-							: data,
-				);
+				if (request.method === "HEAD") {
+					response.end();
+					return;
+				}
+				const body = type.startsWith("application/json")
+					? JSON.stringify(data)
+					: data;
+				response.end(body);
 			}
 			try {
-				const port = server.address().port;
-				const host = request.headers.host;
-				const origin = allowedOrigin ?? `http://${host}`;
-				if (
-					allowedOrigin
-						? host !== new URL(allowedOrigin).host
-						: host !== `127.0.0.1:${port}` && host !== `localhost:${port}`
-				)
-					throw new ViewerError("Host が許可されていません。", 403);
-				if (request.headers.origin && request.headers.origin !== origin)
-					throw new ViewerError("別のサイトからは操作できません。", 403);
-				if (
-					request.headers["sec-fetch-site"] &&
-					!["same-origin", "none"].includes(request.headers["sec-fetch-site"])
-				)
-					throw new ViewerError("別のサイトからはアクセスできません。", 403);
-				const url = new URL(request.url, `http://${host}`);
+				validateRequestOrigin(request, allowedOrigin, server.address().port);
+				const url = new URL(request.url, `http://${request.headers.host}`);
 				const asset = staticFiles.get(url.pathname);
 				if (asset && (request.method === "GET" || request.method === "HEAD"))
 					return send(200, asset.data, asset.type);
 				if (!url.pathname.startsWith("/api/"))
 					return send(404, { error: "見つかりません。" });
-				const supplied = Buffer.from(request.headers["x-viewer-token"] ?? "");
+				const suppliedTokenBytes = Buffer.from(
+					request.headers["x-viewer-token"] ?? "",
+				);
 				if (
-					supplied.length !== token.length ||
-					!timingSafeEqual(supplied, Buffer.from(token))
+					suppliedTokenBytes.length !== expectedTokenBytes.length ||
+					!timingSafeEqual(suppliedTokenBytes, expectedTokenBytes)
 				)
 					throw new ViewerError("ページを再読み込みしてください。", 403);
 				if (request.method !== "POST") {
@@ -199,22 +222,7 @@ export async function createViewerServer({
 						return send(404, { error: "見つかりません。" });
 				}
 			} catch (error) {
-				const status =
-					error instanceof ViewerError
-						? error.status
-						: ["ENOENT", "ENOTDIR"].includes(error.code)
-							? 404
-							: error.code === "EACCES"
-								? 403
-								: 500;
-				const message =
-					error instanceof ViewerError
-						? error.message
-						: status === 404
-							? "パスが見つかりません。移動・削除されていないか確認してください。"
-							: status === 403
-								? "読み取り権限がありません。"
-								: "読み取れませんでした。パスとファイルを確認してください。";
+				const { status, message } = viewerErrorResponse(error);
 				send(status, { error: message });
 			}
 		},

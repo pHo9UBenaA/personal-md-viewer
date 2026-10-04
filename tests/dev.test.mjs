@@ -1,31 +1,61 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { request } from "node:http";
 import { createServer } from "node:net";
 import { test } from "node:test";
+import { requestWithExactHost } from "./helpers/http.mjs";
 
-async function reservePort() {
-	const server = createServer();
-	server.listen(0, "127.0.0.1");
-	await once(server, "listening");
-	return server;
-}
+const hasCaddy = spawnSync("caddy", ["version"]).status === 0;
+const devTestOptions = { skip: !hasCaddy, timeout: 20000 };
 
-async function occupyPort(port) {
+async function reservePort(port = 0) {
 	return new Promise((resolve, reject) => {
 		const server = createServer();
-		server.once("error", (error) =>
-			error.code === "EADDRINUSE" ? resolve(null) : reject(error),
-		);
+		server.once("error", reject);
 		server.listen(port, "127.0.0.1", () => resolve(server));
 	});
 }
 
-async function readyOutput(child) {
+async function occupyPortIfAvailable(port) {
+	try {
+		return await reservePort(port);
+	} catch (error) {
+		if (error.code === "EADDRINUSE") return null;
+		throw error;
+	}
+}
+
+async function closePortReservation(server) {
+	if (server) await new Promise((resolve) => server.close(resolve));
+}
+
+async function selectTestPorts() {
+	const reservations = await Promise.all([reservePort(), reservePort()]);
+	const [proxyPort, backendPort] = reservations.map(
+		(server) => server.address().port,
+	);
+	await Promise.all(reservations.map(closePortReservation));
+	return { proxyPort, backendPort };
+}
+
+function launchDev({ proxyPort, backendPort } = {}) {
+	const env = { ...process.env };
+	if (proxyPort !== undefined) env.DEV_PORT = String(proxyPort);
+	if (backendPort !== undefined) env.DEV_BACKEND_PORT = String(backendPort);
+	const child = spawn(process.execPath, ["scripts/dev.mjs"], {
+		env,
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+	return { child, exited: once(child, "exit") };
+}
+
+async function waitForDevReady(child) {
 	return new Promise((resolve, reject) => {
 		let output = "";
-		const timer = setTimeout(() => reject(new Error(output)), 17000);
+		const timer = setTimeout(
+			() => reject(new Error(`Dev readiness timed out:\n${output}`)),
+			17000,
+		);
 		child.stdout.on("data", (data) => {
 			output += data;
 			if (output.includes("Dev ready:")) {
@@ -42,107 +72,68 @@ async function readyOutput(child) {
 		});
 		child.once("exit", () => {
 			clearTimeout(timer);
-			reject(new Error(output));
+			reject(new Error(`Dev exited before readiness:\n${output}`));
 		});
+	});
+}
+
+async function stopDev({ child, exited }) {
+	child.kill("SIGTERM");
+	await exited;
+}
+
+async function assertPortsReleased({ proxyPort, backendPort }) {
+	// Rebinding proves no orphaned proxy or watch process retains either port.
+	for (const port of [proxyPort, backendPort]) {
+		const reservation = await reservePort(port);
+		await closePortReservation(reservation);
+	}
+}
+
+function requestProxy(port) {
+	return requestWithExactHost(`http://127.0.0.1:${port}`, {
+		headers: { Host: `md.localhost:${port}` },
 	});
 }
 
 test(
 	"dev supervises Caddy and the reader and releases both ports on exit",
-	{
-		skip: spawnSync("caddy", ["version"]).status !== 0,
-		timeout: 20000,
-	},
+	devTestOptions,
 	async () => {
-		const reservations = await Promise.all([reservePort(), reservePort()]);
-		const ports = reservations.map((server) => server.address().port);
-		await Promise.all(
-			reservations.map(
-				(server) => new Promise((resolve) => server.close(resolve)),
-			),
-		);
-		const child = spawn(process.execPath, ["scripts/dev.mjs"], {
-			env: {
-				...process.env,
-				DEV_PORT: String(ports[0]),
-				DEV_BACKEND_PORT: String(ports[1]),
-			},
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		const exit = once(child, "exit");
+		const ports = await selectTestPorts();
+		const dev = launchDev(ports);
 		try {
-			await readyOutput(child);
-			const result = await new Promise((resolve, reject) => {
-				const req = request(
-					`http://127.0.0.1:${ports[0]}`,
-					{ headers: { Host: `md.localhost:${ports[0]}` } },
-					(response) => {
-						let body = "";
-						response.setEncoding("utf8");
-						response.on("data", (chunk) => {
-							body += chunk;
-						});
-						response.on("end", () =>
-							resolve({ status: response.statusCode, body }),
-						);
-					},
-				);
-				req.on("error", reject);
-				req.end();
-			});
-			assert.equal(result.status, 200);
-			assert.match(result.body, /viewer-token/);
+			await waitForDevReady(dev.child);
+			const response = await requestProxy(ports.proxyPort);
+			assert.equal(response.status, 200);
+			assert.match(await response.text(), /viewer-token/);
 		} finally {
-			child.kill("SIGTERM");
-			await exit;
+			await stopDev(dev);
 		}
-		// Binding both again confirms no orphaned Caddy or Node watch process remains.
-		for (const port of ports) {
-			const probe = createServer();
-			probe.listen(port, "127.0.0.1");
-			await once(probe, "listening");
-			await new Promise((resolve) => probe.close(resolve));
-		}
+		await assertPortsReleased(ports);
 	},
 );
 
 test(
 	"dev selects free ports when both default ports are occupied",
-	{
-		skip: spawnSync("caddy", ["version"]).status !== 0,
-		timeout: 20000,
-	},
+	devTestOptions,
 	async () => {
-		const occupied = await Promise.all([occupyPort(8080), occupyPort(3100)]);
-		const child = spawn(process.execPath, ["scripts/dev.mjs"], {
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		const exit = once(child, "exit");
+		const occupied = await Promise.all([
+			occupyPortIfAvailable(8080),
+			occupyPortIfAvailable(3100),
+		]);
+		const dev = launchDev();
 		try {
-			const output = await readyOutput(child);
+			const output = await waitForDevReady(dev.child);
 			const port = Number(
 				output.match(/Dev ready: http:\/\/md\.localhost:(\d+)/)?.[1],
 			);
-			assert.ok(Number.isInteger(port) && port > 0 && port !== 8080);
-			const response = await new Promise((resolve, reject) => {
-				const req = request(
-					`http://127.0.0.1:${port}`,
-					{ headers: { Host: `md.localhost:${port}` } },
-					resolve,
-				);
-				req.on("error", reject);
-				req.end();
-			});
-			assert.equal(response.statusCode, 200);
-			response.resume();
+			assert.ok(Number.isInteger(port) && port > 0, output);
+			assert.notEqual(port, 8080, output);
+			assert.equal((await requestProxy(port)).status, 200);
 		} finally {
-			child.kill("SIGTERM");
-			await exit;
-			await Promise.all(
-				occupied.map(
-					(server) => server && new Promise((resolve) => server.close(resolve)),
-				),
-			);
+			await stopDev(dev);
+			await Promise.all(occupied.map(closePortReservation));
 		}
 	},
 );
@@ -150,57 +141,27 @@ test(
 test(
 	"dev replaces orphaned children after its previous supervisor is killed",
 	{
-		skip:
-			process.platform === "win32" ||
-			spawnSync("caddy", ["version"]).status !== 0,
-		timeout: 20000,
+		...devTestOptions,
+		skip: !hasCaddy || process.platform === "win32",
 	},
 	async () => {
-		const reservations = await Promise.all([reservePort(), reservePort()]);
-		const ports = reservations.map((server) => server.address().port);
-		await Promise.all(
-			reservations.map(
-				(server) => new Promise((resolve) => server.close(resolve)),
-			),
-		);
-		const env = {
-			...process.env,
-			DEV_PORT: String(ports[0]),
-			DEV_BACKEND_PORT: String(ports[1]),
-		};
-		const first = spawn(process.execPath, ["scripts/dev.mjs"], {
-			env,
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		const firstExit = once(first, "exit");
-		let second;
-		let secondExit;
+		const ports = await selectTestPorts();
+		const first = launchDev(ports);
+		let replacement;
 		try {
-			await readyOutput(first);
-			first.kill("SIGKILL");
-			await firstExit;
-			second = spawn(process.execPath, ["scripts/dev.mjs"], {
-				env,
-				stdio: ["ignore", "pipe", "pipe"],
-			});
-			secondExit = once(second, "exit");
+			await waitForDevReady(first.child);
+			first.child.kill("SIGKILL");
+			await first.exited;
+			replacement = launchDev(ports);
 			assert.match(
-				await readyOutput(second),
-				new RegExp(`Dev ready: http://md\\.localhost:${ports[0]}\\b`),
+				await waitForDevReady(replacement.child),
+				new RegExp(`Dev ready: http://md\\.localhost:${ports.proxyPort}\\b`),
 			);
 		} finally {
-			if (!first.killed) first.kill("SIGTERM");
-			if (second) {
-				second.kill("SIGTERM");
-				await secondExit;
-			}
-			await firstExit;
+			if (!first.child.killed) await stopDev(first);
+			if (replacement) await stopDev(replacement);
+			await first.exited;
 		}
-		for (const port of ports) {
-			const probe = createServer();
-			probe.listen(port, "127.0.0.1");
-			await once(probe, "listening");
-			await new Promise((resolve) => probe.close(resolve));
-		}
+		await assertPortsReleased(ports);
 	},
 );

@@ -10,31 +10,32 @@ import { readFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 
-const root = fileURLToPath(new URL("../", import.meta.url));
+const projectDirectory = fileURLToPath(new URL("../", import.meta.url)).slice(
+	0,
+	-1,
+);
 const statePath = fileURLToPath(
 	new URL("../.dev-processes.json", import.meta.url),
 );
 const args = process.argv.slice(2).filter((arg) => arg !== "--");
-function managedProcess(pid, kind) {
+const commandPatternByKind = {
+	supervisor: /(?:^|\/)node(?:\s|$).*\bscripts\/dev\.mjs(?:\s|$)/,
+	viewer: /(?:^|\/)node(?:\s|$).*--watch.*\bsrc\/index\.mjs(?:\s|$)/,
+	proxy: /(?:^|\/)caddy run --config - --adapter caddyfile$/,
+};
+
+// Verify command and working directory before signalling a PID that may be reused.
+function isManagedProcess(pid, kind) {
 	if (!Number.isInteger(pid) || pid < 1 || pid === process.pid) return false;
 	const info = spawnSync("ps", ["-p", String(pid), "-o", "command="], {
 		encoding: "utf8",
 	});
 	if (info.status !== 0) return false;
 	const command = info.stdout.trim();
-	const matches =
-		kind === "supervisor"
-			? /(?:^|\/)node(?:\s|$).*\bscripts\/dev\.mjs(?:\s|$)/.test(command)
-			: kind === "viewer"
-				? /(?:^|\/)node(?:\s|$).*--watch.*\bsrc\/index\.mjs(?:\s|$)/.test(
-						command,
-					)
-				: kind === "proxy" &&
-					/(?:^|\/)caddy run --config - --adapter caddyfile$/.test(command);
-	if (!matches) return false;
+	if (!commandPatternByKind[kind]?.test(command)) return false;
 	if (process.platform === "linux") {
 		try {
-			return readlinkSync(`/proc/${pid}/cwd`) === root.slice(0, -1);
+			return readlinkSync(`/proc/${pid}/cwd`) === projectDirectory;
 		} catch {
 			return false;
 		}
@@ -47,9 +48,19 @@ function managedProcess(pid, kind) {
 		},
 	);
 	return (
-		cwd.status === 0 && cwd.stdout.split("\n").includes(`n${root.slice(0, -1)}`)
+		cwd.status === 0 && cwd.stdout.split("\n").includes(`n${projectDirectory}`)
 	);
 }
+function signalRecordedProcess({ pid, kind }, signal) {
+	if (!isManagedProcess(pid, kind)) return;
+	try {
+		const targetPid = kind === "supervisor" ? pid : -pid;
+		process.kill(targetPid, signal);
+	} catch (error) {
+		if (error.code !== "ESRCH") throw error;
+	}
+}
+
 async function stopPrevious() {
 	let state;
 	try {
@@ -69,28 +80,16 @@ async function stopPrevious() {
 				["viewer", "proxy"].includes(child.kind),
 		),
 	];
-	for (const { pid, kind } of processes) {
-		if (!managedProcess(pid, kind)) continue;
-		try {
-			process.kill(kind === "supervisor" ? pid : -pid, "SIGTERM");
-		} catch (error) {
-			if (error.code !== "ESRCH") throw error;
-		}
-	}
-	const deadline = Date.now() + 4000;
+	for (const recordedProcess of processes)
+		signalRecordedProcess(recordedProcess, "SIGTERM");
+	const stopDeadlineMs = Date.now() + 4000;
 	while (
-		Date.now() < deadline &&
-		processes.some(({ pid, kind }) => managedProcess(pid, kind))
+		Date.now() < stopDeadlineMs &&
+		processes.some(({ pid, kind }) => isManagedProcess(pid, kind))
 	)
 		await new Promise((resolve) => setTimeout(resolve, 50));
-	for (const { pid, kind } of processes) {
-		if (!managedProcess(pid, kind)) continue;
-		try {
-			process.kill(kind === "supervisor" ? pid : -pid, "SIGKILL");
-		} catch (error) {
-			if (error.code !== "ESRCH") throw error;
-		}
-	}
+	for (const recordedProcess of processes)
+		signalRecordedProcess(recordedProcess, "SIGKILL");
 	try {
 		if (JSON.parse(readFileSync(statePath, "utf8")).pid === state.pid)
 			unlinkSync(statePath);
@@ -108,18 +107,18 @@ function probePort(port) {
 		});
 	});
 }
-async function defaultPort(preferred, exclude) {
+async function selectAvailablePort(preferredPort, excludedPort) {
 	let port;
 	try {
-		port = await probePort(preferred);
+		port = await probePort(preferredPort);
 	} catch (error) {
 		if (!["EADDRINUSE", "EPERM"].includes(error.code)) throw error;
 		port = await probePort(0);
 	}
-	while (port === exclude) port = await probePort(0);
+	while (port === excludedPort) port = await probePort(0);
 	return port;
 }
-async function initialArgs() {
+async function loadViewerArgs() {
 	const explicitPaths = args.filter(
 		(arg) => arg !== "--recursive" && arg !== "--allow-html",
 	);
@@ -156,6 +155,24 @@ async function initialArgs() {
 		...(explicitPaths.length === 0 ? config.paths : []),
 	];
 }
+async function selectDevPort(configuredValue, preferredPort, excludedPort) {
+	if (configuredValue === undefined)
+		return selectAvailablePort(preferredPort, excludedPort);
+	const requestedPort = Number(configuredValue);
+	if (requestedPort === 0) return selectAvailablePort(0, excludedPort);
+	return requestedPort;
+}
+
+// Signal the whole watch/proxy group so descendants do not retain ports.
+function signalChildGroup(child, signal = "SIGTERM") {
+	try {
+		if (process.platform === "win32") child.kill(signal);
+		else process.kill(-child.pid, signal);
+	} catch {
+		/* The group may have exited before the signal. */
+	}
+}
+
 if (args.includes("--help") || args.includes("-h")) {
 	console.log(
 		"Usage: pnpm dev [--recursive] [--allow-html] [file.md | directory ...]\n--allow-html renders raw HTML in trusted Markdown. Uses ports 8080 and 3100 when available; otherwise selects free ports. DEV_PORT and DEV_BACKEND_PORT override them.\nStarts Caddy and a watched reader on loopback without sudo. Ctrl+C stops both.",
@@ -191,31 +208,16 @@ if (args.includes("--help") || args.includes("-h")) {
 		stopping = true;
 		clearTimeout(startupTimer);
 		process.exitCode = code;
-		for (const child of children) {
-			// Stop the watch supervisor AND its Node child, not just the parent.
-			try {
-				if (process.platform === "win32") child.kill();
-				else process.kill(-child.pid, "SIGTERM");
-			} catch {
-				/* Already exited. */
-			}
-		}
-		const force = setTimeout(() => {
-			for (const child of children) {
-				try {
-					if (process.platform === "win32") child.kill("SIGKILL");
-					else process.kill(-child.pid, "SIGKILL");
-				} catch {
-					/* Already exited. */
-				}
-			}
+		for (const child of children) signalChildGroup(child);
+		const forceStopTimer = setTimeout(() => {
+			for (const child of children) signalChildGroup(child, "SIGKILL");
 		}, 3000);
-		force.unref();
+		forceStopTimer.unref();
 		if (children.size === 0) releaseState();
 	}
 	function launch(command, argv, options = {}) {
 		const child = spawn(command, argv, {
-			cwd: root,
+			cwd: projectDirectory,
 			detached: process.platform !== "win32",
 			stdio: ["pipe", "pipe", "pipe"],
 			...options,
@@ -236,15 +238,15 @@ if (args.includes("--help") || args.includes("-h")) {
 			childKinds.delete(child);
 			if (stopping) {
 				if (children.size === 0) releaseState();
-			} else writeState();
-			if (!stopping) {
-				console.error(`${command} が終了しました (${code})。`);
-				stop(code || 1);
+				return;
 			}
+			writeState();
+			console.error(`${command} が終了しました (${code})。`);
+			stop(code || 1);
 		});
 		return child;
 	}
-	function lines(stream, callback) {
+	function onOutputLine(stream, callback) {
 		let pending = "";
 		stream.setEncoding("utf8");
 		stream.on("data", (chunk) => {
@@ -261,18 +263,11 @@ if (args.includes("--help") || args.includes("-h")) {
 	process.on("SIGINT", () => stop(0));
 	process.on("SIGTERM", () => stop(0));
 	process.on("exit", () => {
-		for (const child of children) {
-			try {
-				if (process.platform === "win32") child.kill();
-				else process.kill(-child.pid, "SIGTERM");
-			} catch {
-				/* Already exited. */
-			}
-		}
+		for (const child of children) signalChildGroup(child);
 	});
 	try {
 		await stopPrevious();
-		const viewerArgs = await initialArgs();
+		const viewerArgs = await loadViewerArgs();
 		const configuredPort = process.env.DEV_PORT;
 		const configuredBackend = process.env.DEV_BACKEND_PORT;
 		const requestedPort = Number(configuredPort ?? 8080);
@@ -289,18 +284,12 @@ if (args.includes("--help") || args.includes("-h")) {
 			throw new Error(
 				"DEV_PORT と DEV_BACKEND_PORT は異なる 0〜65535 の整数にしてください。0 は空きポートを選びます。",
 			);
-		const port =
-			configuredPort === undefined
-				? await defaultPort(requestedPort)
-				: requestedPort === 0
-					? await probePort(0)
-					: requestedPort;
-		const backend =
-			configuredBackend === undefined
-				? await defaultPort(requestedBackend, port)
-				: requestedBackend === 0
-					? await defaultPort(0, port)
-					: requestedBackend;
+		const port = await selectDevPort(configuredPort, requestedPort);
+		const backend = await selectDevPort(
+			configuredBackend,
+			requestedBackend,
+			port,
+		);
 		if (port === backend)
 			throw new Error(
 				"DEV_PORT と DEV_BACKEND_PORT は異なるポートにしてください。",
@@ -330,7 +319,7 @@ if (args.includes("--help") || args.includes("-h")) {
 		);
 		app.stdin.end();
 		app.stderr.pipe(process.stderr);
-		lines(app.stdout, (line) => {
+		onOutputLine(app.stdout, (line) => {
 			if (!line.startsWith("Markdown viewer:") || proxy || stopping) {
 				if (line) console.log(line);
 				return;
@@ -349,7 +338,7 @@ if (args.includes("--help") || args.includes("-h")) {
 				`{\n admin off\n persist_config off\n auto_https off\n}\n${origin} {\n bind 127.0.0.1\n reverse_proxy 127.0.0.1:${backend}\n}\n`,
 			);
 			proxy.stdout.pipe(process.stdout);
-			lines(proxy.stderr, (message) => {
+			onOutputLine(proxy.stderr, (message) => {
 				let entry;
 				try {
 					entry = JSON.parse(message);
