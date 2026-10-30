@@ -53,7 +53,7 @@ export async function copyDocuments(
 		isWithinRoot(destinationRoot, sourceRoot)
 	)
 		throw new ViewerError(
-			"コピー元と content/ は互いに含まれない場所を指定してください。",
+			"content/ 自体やその中のフォルダー、content/ を含むフォルダーはコピー元に指定できません。",
 		);
 	const destination = resolve(destinationRoot, copyName);
 	// mkdir without recursive reserves the name and refuses existing files or links.

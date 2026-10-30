@@ -151,11 +151,11 @@ test("copyDocuments rejects invalid names and overlapping source/destination tre
 		);
 	await assert.rejects(
 		copyDocuments(root, { destinationDirectory }),
-		/互いに含まれない/,
+		/コピー元に指定できません/,
 	);
 	await assert.rejects(
 		copyDocuments(destinationDirectory, { destinationDirectory }),
-		/互いに含まれない/,
+		/コピー元に指定できません/,
 	);
 	await assert.rejects(
 		copyDocuments(join(source, "index.md"), { destinationDirectory }),

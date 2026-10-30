@@ -160,10 +160,10 @@ test("source view survives tab closing and closed documents remain in the tree",
 		"マーカーはコピーに保存し、元ファイルは変更しません。",
 	);
 	await expect(page.locator("#empty")).toContainText(
-		"コピー後は「コマンドパレット」に content/ を入力して開いてください。",
+		"コピー後は「コマンドパレット」で content/ を開き直すか、",
 	);
 	await expect(page.locator("#empty")).toContainText(
-		"サーバーを再起動した後は、⌘⇧R / Ctrl+Shift+R でこのページも再読み込みしてください。",
+		"サーバーを再起動し、⌘⇧R / Ctrl+Shift+R でこのページ全体を再読み込みしてください。",
 	);
 });
 
