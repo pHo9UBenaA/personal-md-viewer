@@ -1,6 +1,16 @@
 // Map literal preview text to UTF-16 source offsets. Markdown structure is checked by the server.
 const HIGHLIGHT_CLOSE_TAG = "</mark>";
 
+function isLayoutWhitespace(node) {
+	// Renderer-inserted line breaks between blocks/table tags have no source text.
+	return (
+		!node.data.trim() &&
+		node.parentElement?.matches(
+			"body, table, thead, tbody, tfoot, tr, ul, ol, blockquote",
+		)
+	);
+}
+
 export function mapSourceText(frameDocument, source) {
 	const positions = new WeakMap();
 	const nodes = [];
@@ -11,7 +21,11 @@ export function mapSourceText(frameDocument, source) {
 	);
 	for (let node = walker.nextNode(); node; node = walker.nextNode()) {
 		nodes.push(node);
-		if (!node.data || node.parentElement?.closest("pre, code, script, style"))
+		if (
+			!node.data ||
+			isLayoutWhitespace(node) ||
+			node.parentElement?.closest("pre, code, script, style, .image-note")
+		)
 			continue;
 		const start = source.indexOf(node.data, sourceCursor);
 		if (start < 0) continue;
@@ -49,7 +63,7 @@ function collectSourceRanges(mapping, source, start, end) {
 		const node = mapping.nodes[index];
 		const beginOffset = index === startIndex ? start.offset : 0;
 		const endOffset = index === endIndex ? end.offset : node.data.length;
-		if (endOffset <= beginOffset) continue;
+		if (endOffset <= beginOffset || isLayoutWhitespace(node)) continue;
 		const position = mapping.positions.get(node);
 		if (!position) return null;
 		const sourceStart = position.start + beginOffset;

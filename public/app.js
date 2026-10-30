@@ -325,6 +325,10 @@ function watchHighlightSelection(frameDocument, doc, revision) {
 	};
 	const update = () => {
 		if (revision !== renderRevision || showSource) return;
+		if (!document.getSelection()?.isCollapsed) {
+			hideHighlightToolbar();
+			return;
+		}
 		const selected = sourceRangesForSelection(
 			frameDocument.getSelection(),
 			mapping,
@@ -352,6 +356,28 @@ function watchHighlightSelection(frameDocument, doc, revision) {
 		signal: controller.signal,
 	});
 	window.addEventListener("resize", position, { signal: controller.signal });
+	const clearSelection = () => {
+		frameDocument.getSelection()?.removeAllRanges();
+		hideHighlightToolbar();
+	};
+	document.addEventListener(
+		"selectionchange",
+		() => {
+			if (!document.getSelection()?.isCollapsed) clearSelection();
+		},
+		{ signal: controller.signal },
+	);
+	document.addEventListener(
+		"focusin",
+		(event) => {
+			if (!toolbar.contains(event.target) && event.target !== frame)
+				clearSelection();
+		},
+		{ signal: controller.signal },
+	);
+	frameDocument.addEventListener("pointerdown", () =>
+		document.getSelection()?.removeAllRanges(),
+	);
 	frameDocument.addEventListener("selectionchange", update);
 	frameDocument.addEventListener("mouseup", update);
 	frameDocument.addEventListener("keyup", update);
@@ -821,10 +847,7 @@ $("source-toggle").addEventListener("click", () => {
 	if (active) activate(active);
 });
 document.addEventListener("pointerdown", (event) => {
-	if (
-		!$("highlight-toolbar").hidden &&
-		!$("highlight-toolbar").contains(event.target)
-	) {
+	if (!$("highlight-toolbar").contains(event.target)) {
 		$("content").contentWindow?.getSelection()?.removeAllRanges();
 		hideHighlightToolbar();
 	}

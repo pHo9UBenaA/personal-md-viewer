@@ -40,6 +40,15 @@ const cases = [
 		},
 	},
 	{
+		name: "table layout whitespace does not advance source offsets",
+		source: "| Header | Other |\n| --- | --- |\n| value | value |",
+		selector: "td:last-child",
+		expected: {
+			ranges: [{ start: 43, end: 48, text: "value" }],
+			marker: null,
+		},
+	},
+	{
 		name: "inline code is not highlightable",
 		source: "`code`",
 		selector: "code",
