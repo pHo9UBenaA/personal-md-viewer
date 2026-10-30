@@ -153,7 +153,7 @@ async function api(route, body = {}, { asBlob = false } = {}) {
 		const data = await response.json().catch(() => ({}));
 		throw new Error(
 			data.error ||
-				"リクエストに失敗しました。サーバーを再起動した場合は、このページを再読み込みしてください。",
+				"リクエストに失敗しました。サーバーを再起動した場合は、⌘⇧R / Ctrl+Shift+R でこのページ全体を再読み込みしてください。",
 		);
 	}
 	return asBlob ? response.blob() : response.json();

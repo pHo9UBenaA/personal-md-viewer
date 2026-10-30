@@ -92,6 +92,23 @@ test("errors reappear after dismissing notices, and can also be removed", async 
 	await expect(page.locator("#status")).toHaveCount(0);
 });
 
+test("API failures without a JSON error explain how to reload the whole Viewer", async ({
+	page,
+}) => {
+	await page.route("**/api/initial", (route) =>
+		route.fulfill({
+			status: 503,
+			contentType: "text/plain",
+			body: "Unavailable",
+		}),
+	);
+	await page.goto("/");
+	await expect(page.locator("#status")).toHaveAttribute("data-error", "true");
+	await expect(page.getByRole("status")).toContainText(
+		"リクエストに失敗しました。サーバーを再起動した場合は、⌘⇧R / Ctrl+Shift+R でこのページ全体を再読み込みしてください。",
+	);
+});
+
 for (const allowHtml of [false, true]) {
 	test(`no-notices omits guidance but keeps errors, results and shortcut help (allowHtml=${allowHtml})`, async ({
 		page,

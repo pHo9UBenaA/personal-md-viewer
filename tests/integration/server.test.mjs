@@ -188,6 +188,13 @@ test("token, Origin, Fetch Metadata and Host protect local file APIs", async () 
 		405,
 	);
 });
+test("invalid API tokens explain how to reload the whole Viewer", async () => {
+	const response = await api("initial", {}, { "X-Viewer-Token": "stale" });
+	assert.equal(response.status, 403);
+	assert.deepEqual(await response.json(), {
+		error: "⌘⇧R / Ctrl+Shift+R でこのページ全体を再読み込みしてください。",
+	});
+});
 test("asset routes never expose arbitrary local files", async () => {
 	for (const route of [
 		"/files/secret.md",

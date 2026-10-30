@@ -238,7 +238,10 @@ export async function createViewerServer({
 					suppliedTokenBytes.length !== expectedTokenBytes.length ||
 					!timingSafeEqual(suppliedTokenBytes, expectedTokenBytes)
 				)
-					throw new ViewerError("ページを再読み込みしてください。", 403);
+					throw new ViewerError(
+						"⌘⇧R / Ctrl+Shift+R でこのページ全体を再読み込みしてください。",
+						403,
+					);
 				if (request.method !== "POST") {
 					response.setHeader("Allow", "POST");
 					throw new ViewerError("POST が必要です。", 405);
