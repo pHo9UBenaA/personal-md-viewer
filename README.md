@@ -39,5 +39,5 @@ pnpm start
 - [開発環境の準備](docs/development.md#準備)・[自動再起動付きの開発サーバー](docs/development.md#開発サーバー)
 - [Caddy を別途起動する構成](docs/development.md#任意の構成-ポート番号なしのローカル-url)
 - [検証手順](docs/development.md#検証)・[構成と依存の方針](docs/development.md#構成と依存の方針)
-- [安全設計](docs/security.md): アクセス制御、ファイル保護、HTML・CSP の保守条件。
+- 安全設計: [利用上の前提](docs/security.md#利用上の前提)・[アクセス制御](docs/security.md#http-のアクセス制御)・[ファイル保護](docs/security.md#ファイルの参照書き込み)・[HTML の描画](docs/security.md#markdownhtml-の描画)・[本文 CSP](docs/security.md#本文-iframe-の-csp-と-sandbox)。
 - [エージェント向け作業指示](AGENTS.md): 変更箇所に応じた参照先と作業の進め方。

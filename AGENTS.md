@@ -17,7 +17,7 @@
 - Markdown・HTML の描画: [既定モードと HTML 許可モードの保守条件](docs/security.md#markdownhtml-の描画)。
 - iframe・本文イベント: [CSP と sandbox](docs/security.md#本文-iframe-の-csp-と-sandbox)。**本文の `script-src 'none'` を緩めない。**
 
-利用者に見える挙動を変える場合は、[利用ガイド](docs/usage.md)の条件・必要な対応も更新する。特に Markdown の既定モードと HTML 許可モード、パスで開く方式とブラウザー取り込み方式の違いを維持する。
+利用者に見える挙動を変える場合は、利用ガイドの条件・必要な対応も更新する。特に[生 HTML の表示条件](docs/usage.md#生-html-を表示する場合)と[開き方による違い](docs/usage.md#開き方による違い)を確認し、既定モードと HTML 許可モード、パスで開く方式とブラウザー取り込み方式の違いを維持する。
 
 ## 検証・説明
 
