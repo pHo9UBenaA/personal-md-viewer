@@ -25,6 +25,9 @@ let highlightSelection = null;
 let highlightListeners = null;
 const expandedFolders = new Set();
 const filterCollapsedFolders = new Set();
+const readerPositions = new Map();
+let displayedView = null;
+let readerFocusRevision = null;
 const MAX_CACHED_TABS = 10;
 const MAX_PAGE_IMAGES = 100;
 const MAX_PALETTE_MATCHES = 20;
@@ -265,7 +268,52 @@ function hideHighlightToolbar() {
 	$("highlight-toolbar").hidden = true;
 }
 
+function rememberReaderPosition() {
+	if (!displayedView || !tabs.has(displayedView.key)) return;
+	const { key, mode, frame } = displayedView;
+	const positions = readerPositions.get(key) ?? {};
+	positions[mode] = {
+		x: frame.contentWindow.scrollX,
+		y: frame.contentWindow.scrollY,
+	};
+	readerPositions.set(key, positions);
+}
+
+function focusReaderContent() {
+	if (!active) return;
+	if (!displayedView || displayedView.frame !== $("content")) {
+		readerFocusRevision = renderRevision;
+		return;
+	}
+	readerFocusRevision = null;
+	document.getSelection()?.removeAllRanges();
+	$("content").contentWindow.focus();
+	$("content").contentDocument.body.focus({ preventScroll: true });
+}
+
+function focusTreeFilter() {
+	readerFocusRevision = null;
+	tabController.closeMenu();
+	setFocusMode(false);
+	$("filter").focus();
+	$("filter").select();
+}
+
+function cycleTab(direction) {
+	const keys = [...tabs.keys()];
+	if (!keys.length) return;
+	const index = (keys.indexOf(active) + direction + keys.length) % keys.length;
+	if (keys[index] === active) {
+		tabController.selectOnly(active);
+		drawNavigation();
+		focusReaderContent();
+	} else void activate(keys[index], { focusReader: true });
+}
+
 function clearReader() {
+	rememberReaderPosition();
+	displayedView = null;
+	readerFocusRevision = null;
 	highlightListeners?.abort();
 	highlightListeners = null;
 	hideHighlightToolbar();
@@ -431,7 +479,10 @@ function closeTabs(closingKeys) {
 	if (!closing.size) return;
 	const focusWasInTabs = $("tabs").contains(document.activeElement);
 	const index = keys.indexOf(active);
-	for (const key of closing) tabs.delete(key);
+	for (const key of closing) {
+		tabs.delete(key);
+		readerPositions.delete(key);
+	}
 	if (!tabs.size) {
 		showEmpty("タブを閉じました。ファイル一覧から開き直せます。");
 		if (focusWasInTabs) $("filter").focus();
@@ -488,6 +539,7 @@ async function restoreView(state) {
 	const revision = ++navigationRevision;
 	if ($("palette").open) $("palette").close();
 	tabs.clear();
+	readerPositions.clear();
 	showEmpty("履歴から復元しています…", { record: false });
 	const paths = new Map((state?.paths ?? []).map((doc) => [doc.path, doc]));
 	let missingPaths = 0;
@@ -633,7 +685,8 @@ function evictOldTabContent(currentDoc) {
 	}
 }
 
-function createReaderFrame(doc, revision, { hash, scrollTop }) {
+function createReaderFrame(doc, revision, { hash, scrollTop, scrollLeft }) {
+	const sourceMode = showSource;
 	const frame = document.createElement("iframe");
 	frame.id = "content";
 	frame.title = "Markdown 本文";
@@ -642,7 +695,7 @@ function createReaderFrame(doc, revision, { hash, scrollTop }) {
 		"allow-same-origin allow-scripts allow-popups allow-popups-to-escape-sandbox",
 	);
 	let content = doc.html;
-	if (showSource) {
+	if (sourceMode) {
 		const pre = document.createElement("pre");
 		pre.className = "source";
 		pre.textContent = doc.source;
@@ -652,12 +705,18 @@ function createReaderFrame(doc, revision, { hash, scrollTop }) {
 		if (revision !== renderRevision) return;
 		const readerDocument = frame.contentDocument;
 		readerDocument.documentElement.dataset.theme = theme;
+		readerDocument.body.tabIndex = -1;
+		displayedView = {
+			key: keyFor(doc),
+			mode: sourceMode ? "raw" : "preview",
+			frame,
+		};
 		readerDocument.addEventListener("keydown", shortcuts);
 		readerDocument.addEventListener("pointerdown", () =>
 			tabController.closeMenu(),
 		);
 		preventFileDrop(readerDocument);
-		if (!showSource) {
+		if (!sourceMode) {
 			watchHighlightSelection(readerDocument, doc, revision);
 			buildOutline(readerDocument);
 			enableReaderLinks(readerDocument, doc);
@@ -666,7 +725,8 @@ function createReaderFrame(doc, revision, { hash, scrollTop }) {
 				status(error.message, true),
 			);
 		}
-		if (scrollTop) frame.contentWindow.scrollTo(0, scrollTop);
+		if (!hash) frame.contentWindow.scrollTo(scrollLeft, scrollTop);
+		if (readerFocusRevision === revision) focusReaderContent();
 	};
 	// WebKit needs allow-scripts for parent-installed listeners; the document CSP forbids execution.
 	frame.srcdoc = `<!doctype html>
@@ -683,7 +743,13 @@ function createReaderFrame(doc, revision, { hash, scrollTop }) {
 
 async function activate(
 	key,
-	{ hash, record = true, scrollTop = 0, preserveTabSelection = false } = {},
+	{
+		hash,
+		record = true,
+		scrollTop,
+		preserveTabSelection = false,
+		focusReader = false,
+	} = {},
 ) {
 	const doc = availableDocuments.get(key);
 	if (!doc) return;
@@ -693,6 +759,10 @@ async function activate(
 	if (record) recordView();
 	const revision = ++renderRevision;
 	clearReader();
+	if (focusReader) readerFocusRevision = revision;
+	const position = readerPositions.get(key)?.[
+		showSource ? "raw" : "preview"
+	] ?? { x: 0, y: 0 };
 	drawNavigation();
 	$("document-path").textContent = doc.path;
 	$("document-path").title = doc.path;
@@ -704,7 +774,11 @@ async function activate(
 		if (revision !== renderRevision) return;
 		evictOldTabContent(doc);
 		$("content").replaceWith(
-			createReaderFrame(doc, revision, { hash, scrollTop }),
+			createReaderFrame(doc, revision, {
+				hash,
+				scrollTop: scrollTop ?? position.y,
+				scrollLeft: position.x,
+			}),
 		);
 		if (revision === renderRevision)
 			status(
@@ -756,16 +830,35 @@ function shortcuts(event) {
 	if (event.defaultPrevented || event.isComposing || event.keyCode === 229)
 		return;
 	const key = event.key.toLowerCase();
+	const dialogOpen = Boolean(document.querySelector("dialog[open]"));
+	const controlOnly = event.ctrlKey && !event.metaKey && !event.altKey;
+	if (controlOnly && key === "tab") {
+		event.preventDefault();
+		if (!dialogOpen) cycleTab(event.shiftKey ? -1 : 1);
+		return;
+	}
+	// JIS has an @ key; US layouts use Shift+2. Do not bind Ctrl+[ on US layouts.
+	if (
+		controlOnly &&
+		(key === "@" || (event.code === "Digit2" && event.shiftKey))
+	) {
+		event.preventDefault();
+		if (!dialogOpen && !event.repeat) {
+			if (document.activeElement === $("filter") && active)
+				focusReaderContent();
+			else focusTreeFilter();
+		}
+		return;
+	}
 	const isCommand = (event.metaKey || event.ctrlKey) && !event.altKey;
 	if (isCommand && !event.shiftKey && (key === "w" || event.code === "KeyW")) {
 		event.preventDefault();
-		if (!event.repeat && !$("palette").open)
-			closeTabs(tabController.selectedKeys());
+		if (!event.repeat && !dialogOpen) closeTabs(tabController.selectedKeys());
 		return;
 	}
 	if (isCommand && !event.shiftKey && (key === "r" || event.code === "KeyR")) {
 		event.preventDefault();
-		if (!event.repeat && !$("palette").open)
+		if (!event.repeat && !dialogOpen)
 			void runExclusiveAction(() => reloadTab());
 		return;
 	}
@@ -778,25 +871,22 @@ function shortcuts(event) {
 		!event.ctrlKey &&
 		!event.altKey &&
 		!editable &&
-		!$("palette").open
+		!dialogOpen
 	) {
 		event.preventDefault();
-		tabController.closeMenu();
-		setFocusMode(false);
-		$("filter").focus();
-		$("filter").select();
+		focusTreeFilter();
 		return;
 	}
 	const isCommandShift =
 		(event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey;
 	if (isCommandShift && key === "f") {
-		if (!active) return;
 		event.preventDefault();
+		if (!active || dialogOpen) return;
 		tabController.closeMenu();
 		setFocusMode(!document.body.classList.contains("focus-mode"));
 		return;
 	}
-	if (event.key === "Escape" && !$("palette").open) {
+	if (event.key === "Escape" && !dialogOpen) {
 		if (!$("highlight-toolbar").hidden) {
 			$("content").contentWindow?.getSelection()?.removeAllRanges();
 			hideHighlightToolbar();
@@ -807,7 +897,7 @@ function shortcuts(event) {
 	}
 	if (isCommandShift && key === "p") {
 		event.preventDefault();
-		openPalette();
+		if (!dialogOpen || $("palette").open) openPalette();
 	}
 }
 document.addEventListener("keydown", shortcuts);
@@ -901,7 +991,11 @@ $("source-toggle").addEventListener("click", () => {
 	$("source-toggle").textContent = showSource ? "Preview" : "Raw";
 	if (active) activate(active, { preserveTabSelection: true });
 });
+document.addEventListener("focusin", (event) => {
+	if (event.target !== $("content")) readerFocusRevision = null;
+});
 document.addEventListener("pointerdown", (event) => {
+	readerFocusRevision = null;
 	if (!$("highlight-toolbar").contains(event.target)) {
 		$("content").contentWindow?.getSelection()?.removeAllRanges();
 		hideHighlightToolbar();
