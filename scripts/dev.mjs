@@ -116,48 +116,6 @@ async function selectAvailablePort(preferredPort) {
 		return probePort(0);
 	}
 }
-async function loadViewerArgs() {
-	const explicitPaths = args.filter(
-		(arg) => !["--recursive", "--allow-html", "--no-notices"].includes(arg),
-	);
-	let source;
-	try {
-		source = await readFile(
-			new URL("../dev.local.json", import.meta.url),
-			"utf8",
-		);
-	} catch (error) {
-		if (error.code === "ENOENT") return args;
-		throw error;
-	}
-	const config = JSON.parse(source);
-	if (
-		!config ||
-		typeof config !== "object" ||
-		!Array.isArray(config.paths) ||
-		config.paths.some((path) => typeof path !== "string" || !path.trim()) ||
-		(config.recursive !== undefined && typeof config.recursive !== "boolean") ||
-		(config.allowHtml !== undefined && typeof config.allowHtml !== "boolean") ||
-		(config.hideNotices !== undefined &&
-			typeof config.hideNotices !== "boolean")
-	)
-		throw new Error(
-			"dev.local.json の paths には文字列の配列を指定してください。recursive / allowHtml / hideNotices は省略できますが、指定する場合は真偽値にしてください。",
-		);
-	return [
-		...(config.recursive && !args.includes("--recursive")
-			? ["--recursive"]
-			: []),
-		...(config.allowHtml && !args.includes("--allow-html")
-			? ["--allow-html"]
-			: []),
-		...(config.hideNotices && !args.includes("--no-notices")
-			? ["--no-notices"]
-			: []),
-		...args,
-		...(explicitPaths.length === 0 ? config.paths : []),
-	];
-}
 async function selectDevPort(configuredValue) {
 	if (configuredValue === undefined) return selectAvailablePort(8080);
 	const requestedPort = Number(configuredValue);
@@ -182,7 +140,7 @@ function signalChildGroup(child, signal = "SIGTERM") {
 
 if (args.includes("--help") || args.includes("-h")) {
 	console.log(
-		"Usage: pnpm dev [--no-open] [--no-notices] [--recursive] [--allow-html] [file.md | directory ...]\n--allow-html renders raw HTML in trusted Markdown. Uses port 8080 when available; otherwise selects a free port. DEV_PORT overrides it.\nStarts a watched reader on 127.0.0.1 without sudo. Ctrl+C stops it. Once the reader is ready, opens the installed macOS Markdown Viewer app for this URL, or falls back to Chrome app mode. --no-open disables browser launch; --no-notices hides the shortcut and copied-document notices, not errors or operation results. CHROME_PATH bypasses app discovery; VIEWER_APP_PATH explicitly selects a matching macOS .app.",
+		"Usage: pnpm dev [--no-open] [--no-notices] [--recursive] [--allow-html] [file.md | directory ...]\nLoads dev.local.json for default paths and options, just like pnpm start. --allow-html renders raw HTML in trusted Markdown. Uses port 8080 when available; otherwise selects a free port. DEV_PORT overrides it.\nStarts a watched reader on 127.0.0.1 without sudo. Ctrl+C stops it. Once the reader is ready, opens the installed macOS Markdown Viewer app for this URL, or falls back to Chrome app mode. --no-open disables browser launch; --no-notices hides the shortcut and copied-document notices, not errors or operation results. CHROME_PATH bypasses app discovery; VIEWER_APP_PATH explicitly selects a matching macOS .app.",
 	);
 } else {
 	const children = new Set();
@@ -268,7 +226,6 @@ if (args.includes("--help") || args.includes("-h")) {
 	});
 	try {
 		await stopPrevious();
-		const viewerArgs = await loadViewerArgs();
 		const port = await selectDevPort(process.env.DEV_PORT);
 		writeState();
 		startupTimer = setTimeout(() => {
@@ -286,7 +243,7 @@ if (args.includes("--help") || args.includes("-h")) {
 				"--watch-path=public",
 				"src/index.mjs",
 				"--no-open",
-				...viewerArgs,
+				...args,
 			],
 			{
 				env: { ...process.env, PORT: String(port) },
