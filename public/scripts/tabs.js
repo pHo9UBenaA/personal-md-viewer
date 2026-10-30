@@ -1,29 +1,30 @@
-export class TabSelection {
-	keys = new Set();
-	anchor = null;
+export function createTabSelection(key = null) {
+	return {
+		keys: new Set(key ? [key] : []),
+		anchor: key,
+	};
+}
 
-	selectOnly(key) {
-		this.keys = new Set(key ? [key] : []);
-		this.anchor = key;
-	}
-
-	selectRange(key, orderedKeys) {
-		const start = orderedKeys.indexOf(this.anchor);
-		const end = orderedKeys.indexOf(key);
-		if (start < 0 || end < 0) {
-			this.selectOnly(key);
-			return;
-		}
-		this.keys = new Set(
+export function selectTabRange(selection, key, orderedKeys) {
+	const start = orderedKeys.indexOf(selection.anchor);
+	const end = orderedKeys.indexOf(key);
+	if (start < 0 || end < 0) return createTabSelection(key);
+	return {
+		keys: new Set(
 			orderedKeys.slice(Math.min(start, end), Math.max(start, end) + 1),
-		);
-	}
+		),
+		anchor: selection.anchor,
+	};
+}
 
-	retain(orderedKeys, active) {
-		this.keys = new Set(orderedKeys.filter((key) => this.keys.has(key)));
-		if (!this.keys.size && active) this.keys.add(active);
-		if (!orderedKeys.includes(this.anchor)) this.anchor = active;
-	}
+export function retainTabSelection(selection, orderedKeys, active) {
+	const retainedKeys = orderedKeys.filter((key) => selection.keys.has(key));
+	return {
+		keys: new Set(
+			retainedKeys.length === 0 && active ? [active] : retainedKeys,
+		),
+		anchor: orderedKeys.includes(selection.anchor) ? selection.anchor : active,
+	};
 }
 
 export function initializeTabs({
@@ -37,7 +38,7 @@ export function initializeTabs({
 	reloadTab,
 	status,
 }) {
-	const selection = new TabSelection();
+	let selection = createTabSelection();
 	let menuKey = null;
 	let dragKey = null;
 	const selectedKeys = () =>
@@ -54,14 +55,15 @@ export function initializeTabs({
 	}
 
 	function selectAndActivate(key, extend = false) {
-		if (extend) selection.selectRange(key, [...tabs.keys()]);
-		else selection.selectOnly(key);
+		selection = extend
+			? selectTabRange(selection, key, [...tabs.keys()])
+			: createTabSelection(key);
 		void activate(key, { preserveTabSelection: true });
 	}
 
 	function draw() {
 		closeMenu();
-		selection.retain([...tabs.keys()], getActive());
+		selection = retainTabSelection(selection, [...tabs.keys()], getActive());
 		element.replaceChildren();
 		for (const [key, doc] of tabs) {
 			const tab = document.createElement("button");
@@ -130,7 +132,7 @@ export function initializeTabs({
 
 	function openMenu(key, x, y) {
 		if (!selection.keys.has(key)) {
-			selection.selectOnly(key);
+			selection = createTabSelection(key);
 			draw();
 		}
 		menuKey = key;
@@ -293,7 +295,9 @@ export function initializeTabs({
 
 	return {
 		draw,
-		selectOnly: (key) => selection.selectOnly(key),
+		selectOnly: (key) => {
+			selection = createTabSelection(key);
+		},
 		selectedKeys,
 		closeMenu,
 	};
