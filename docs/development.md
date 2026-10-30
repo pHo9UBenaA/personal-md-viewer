@@ -47,6 +47,10 @@ Caddy の起動完了後、`Dev ready:` の URL を Chrome アプリモードで
 
 同じリポジトリで `pnpm dev` を再実行すると、以前このスクリプトが起動した Caddy と閲覧サーバーを終了してから起動する。既存の Caddy 設定や常駐サービスは変更しない。
 
+### 案内を非表示にする
+
+`pnpm dev --no-notices`（通常起動では `pnpm start --no-notices`）で、ショートカットとコピー閲覧の案内を最初から表示しない。読み込み中・操作結果・エラーは引き続き通知し、ショートカットの詳細はパレット内から開ける。既定では2つの案内を表示し、それぞれ × で閉じると画面全体を再読み込みするまで再表示しない。
+
 ### 生 HTML を許可する
 
 信頼できるファイルに限り、`pnpm dev --allow-html content/notes/trusted.md` で生 HTML を描画できる。既定では生 HTML を文字として表示し、HTML コメントは非表示にする。アプリが保存する固定形式のマーカーは、許可の有無にかかわらず描画する。
@@ -61,14 +65,16 @@ Caddy の起動完了後、`Dev ready:` の URL を Chrome アプリモードで
 {
   "paths": ["content/notes-one", "content/notes-two"],
   "recursive": false,
-  "allowHtml": false
+  "allowHtml": false,
+  "hideNotices": false
 }
 ```
 
 - `paths` は必須の文字列配列。`content/` 内のフォルダー・Markdown ファイルを混在させられる。空配列ならコピー全体を登録する。以前の外部パスは拒否されるため、コピー後のパスに変更する。
 - 起動引数でパスを指定すると、設定ファイルの `paths` を使わず、引数のパスを登録する。
 - `recursive: true` は `--recursive`、`allowHtml: true` は `--allow-html` と同じ。**パス引数の有無にかかわらず適用する。** `allowHtml: true` の場合は、そのサーバーで開くすべての Markdown が信頼できることを確認する。
-- `recursive` / `allowHtml` を省略した場合は `false`。起動引数のフラグで有効にできるが、設定ファイルの `true` を打ち消す起動フラグはない。
+- `hideNotices: true` は `--no-notices` と同じで、ショートカットとコピー閲覧の案内だけを非表示にする。パス引数の有無にかかわらず適用する。
+- `recursive` / `allowHtml` / `hideNotices` を省略した場合は `false`。起動引数のフラグで有効にできるが、設定ファイルの `true` を打ち消す起動フラグはない。
 
 ### ポートを変更する
 

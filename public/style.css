@@ -125,18 +125,28 @@ kbd {
 .restore-icon {
 	mask: url("/icons/restore.svg") center / contain no-repeat;
 }
-.shortcut-notice {
-	padding: 3px 12px;
-	font-size: 12px;
-	line-height: 1.5;
-	color: var(--muted);
-}
-#status {
-	min-height: 24px;
+.notice {
+	display: flex;
+	gap: 8px;
+	align-items: flex-start;
 	padding: 2px 12px;
 	font-size: 12px;
-	line-height: 20px;
+	line-height: 24px;
 	color: var(--muted);
+}
+.notice-message {
+	flex: 1;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+.notice-close {
+	flex-shrink: 0;
+	width: 24px;
+	height: 24px;
+	min-height: 24px;
+	padding: 0;
+	background: transparent;
+	border: 0;
 }
 #status[data-error="true"] {
 	color: var(--error);
@@ -770,10 +780,7 @@ dialog::backdrop {
 	.document-bar button {
 		padding-inline: 4px;
 	}
-	.shortcut-notice {
-		padding: 3px 8px;
-	}
-	#status {
+	.notice {
 		padding: 2px 8px;
 	}
 	dialog {

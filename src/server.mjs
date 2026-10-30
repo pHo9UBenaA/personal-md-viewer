@@ -106,6 +106,7 @@ export async function createViewerServer({
 	recursive = false,
 	publicOrigin,
 	allowHtml = false,
+	hideNotices = false,
 	contentDirectory,
 } = {}) {
 	let allowedOrigin;
@@ -142,7 +143,10 @@ export async function createViewerServer({
 				);
 				const data =
 					file === "index.html"
-						? bytes.toString("utf8").replace("__TOKEN__", token)
+						? bytes
+								.toString("utf8")
+								.replace("__TOKEN__", token)
+								.replace("__SHOW_NOTICES__", String(!hideNotices))
 						: bytes;
 				return [route, { type, data }];
 			}),

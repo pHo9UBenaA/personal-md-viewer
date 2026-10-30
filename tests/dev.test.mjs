@@ -53,6 +53,7 @@ function launchDev({
 	backendPort,
 	chromePath,
 	openBrowser = false,
+	args = [],
 } = {}) {
 	const env = { ...process.env };
 	if (chromePath) env.CHROME_PATH = chromePath;
@@ -60,7 +61,7 @@ function launchDev({
 	if (backendPort !== undefined) env.DEV_BACKEND_PORT = String(backendPort);
 	const child = spawn(
 		process.execPath,
-		["scripts/dev.mjs", ...(openBrowser ? [] : ["--no-open"])],
+		["scripts/dev.mjs", ...(openBrowser ? [] : ["--no-open"]), ...args],
 		{
 			cwd: project,
 			env,
@@ -186,6 +187,66 @@ test(
 		await assertPortsReleased(ports);
 	},
 );
+
+for (const { name, hideNotices, args, expected } of [
+	{
+		name: "CLI flag preserves configured paths",
+		hideNotices: false,
+		args: ["--no-notices"],
+		expected: false,
+	},
+	{
+		name: "config hides notices",
+		hideNotices: true,
+		args: [],
+		expected: false,
+	},
+	{
+		name: "false config keeps notices",
+		hideNotices: false,
+		args: [],
+		expected: true,
+	},
+]) {
+	test(`dev notice settings: ${name}`, devTestOptions, async () => {
+		const ports = await selectTestPorts();
+		const path = "content/configured-notice.md";
+		await writeFile(join(project, path), "# Configured notice");
+		await writeFile(
+			join(project, "dev.local.json"),
+			JSON.stringify({ paths: [path], hideNotices }),
+		);
+		const dev = launchDev({ ...ports, args });
+		try {
+			await waitForDevReady(dev.child);
+			const html = await (await requestProxy(ports.proxyPort)).text();
+			assert.ok(html.includes(`data-show-notices="${expected}"`));
+			const token = html.match(/name="viewer-token" content="([^"]+)"/)[1];
+			const response = await requestWithExactHost(
+				`http://127.0.0.1:${ports.proxyPort}/api/initial`,
+				{
+					method: "POST",
+					headers: {
+						Host: `md.localhost:${ports.proxyPort}`,
+						"Content-Type": "application/json",
+						"X-Viewer-Token": token,
+					},
+					body: "{}",
+				},
+			);
+			assert.equal(response.status, 200);
+			assert.deepEqual(
+				(await response.json()).documents.map((doc) => doc.name),
+				["configured-notice.md"],
+			);
+		} finally {
+			await stopDev(dev);
+			await rm(join(project, "dev.local.json"), { force: true });
+			await rm(join(project, path), { force: true });
+		}
+		await assertPortsReleased(ports);
+	});
+}
 
 async function waitUntil(read, accept) {
 	const deadline = Date.now() + 8000;

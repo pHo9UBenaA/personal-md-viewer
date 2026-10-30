@@ -47,6 +47,32 @@ after(async () => {
 	if (server) await closeServer(server);
 	if (root) await rm(root, { recursive: true, force: true });
 });
+test("notice visibility is encoded as a boolean without changing CSP or API access", async () => {
+	for (const hideNotices of [false, true]) {
+		const viewer = await createViewerServer({
+			contentDirectory: root,
+			hideNotices,
+		});
+		try {
+			const url = await listenOnLoopback(viewer);
+			const response = await fetch(url);
+			const html = await response.text();
+			assert.ok(html.includes(`data-show-notices="${!hideNotices}"`));
+			assert.ok(!html.includes("__SHOW_NOTICES__"));
+			assert.equal(
+				response.headers.get("content-security-policy"),
+				(await fetch(base)).headers.get("content-security-policy"),
+			);
+			assert.equal(
+				(await fetch(`${url}/api/initial`, { method: "POST" })).status,
+				403,
+			);
+		} finally {
+			await closeServer(viewer);
+		}
+	}
+});
+
 const api = (route, body = {}, headers = {}) =>
 	fetch(`${base}/api/${route}`, {
 		method: "POST",

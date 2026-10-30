@@ -78,7 +78,9 @@ test(
 		const server = await launch();
 		try {
 			const url = await server.ready;
-			assert.equal((await fetch(url)).status, 200);
+			const response = await fetch(url);
+			assert.equal(response.status, 200);
+			assert.match(await response.text(), /data-show-notices="true"/);
 			const launches = await waitUntil(
 				() => readFile(chrome.log, "utf8").catch(() => ""),
 				(text) => text.endsWith("\n"),
@@ -110,6 +112,20 @@ test(
 		}
 	},
 );
+
+test("--no-notices hides only the onboarding notices", cliOptions, async () => {
+	const server = await launch(["--no-open", "--no-notices"]);
+	try {
+		const url = await server.ready;
+		const response = await fetch(url);
+		assert.equal(response.status, 200);
+		assert.match(await response.text(), /data-show-notices="false"/);
+		assert.equal(server.errors(), "");
+	} finally {
+		server.child.kill("SIGTERM");
+		await server.exited;
+	}
+});
 
 test(
 	"missing Chrome leaves a usable server and reports its URL",

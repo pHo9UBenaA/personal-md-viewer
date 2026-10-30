@@ -88,7 +88,7 @@ test("bulk open includes collapsed matches without reading, duplicating or movin
 	await expect(page.locator('.tab[data-batch-selected="true"]')).toHaveCount(1);
 	expect(await page.evaluate(() => history.length)).toBe(historyLength + 1);
 	await page.locator("#open-matches").click();
-	await expect(page.getByRole("status")).toHaveText(
+	await expect(page.getByRole("status").locator(".notice-message")).toHaveText(
 		"検索結果はすべて開いています。",
 	);
 	expect(await page.evaluate(() => history.length)).toBe(historyLength + 1);

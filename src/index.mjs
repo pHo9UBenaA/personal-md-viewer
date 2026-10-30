@@ -4,7 +4,7 @@ import { createViewerServer } from "./server.mjs";
 const args = process.argv.slice(2).filter((arg) => arg !== "--");
 if (args.includes("--help") || args.includes("-h")) {
 	console.log(
-		"Usage: pnpm start [--no-open] [--recursive] [--allow-html] [content/file.md | content/directory ...]\n\nOnly content/ is accessible. Run pnpm copy-docs SOURCE_DIRECTORY first. Without paths, all copied Markdown is listed recursively.\n--allow-html renders raw HTML in trusted Markdown. PORT defaults to 3000; PORT=0 selects a free port.\nOpens Chrome in app mode after startup. --no-open disables browser launch. CHROME_PATH overrides the Chrome executable.",
+		"Usage: pnpm start [--no-open] [--no-notices] [--recursive] [--allow-html] [content/file.md | content/directory ...]\n\nOnly content/ is accessible. Run pnpm copy-docs SOURCE_DIRECTORY first. Without paths, all copied Markdown is listed recursively.\n--allow-html renders raw HTML in trusted Markdown. PORT defaults to 3000; PORT=0 selects a free port.\nOpens Chrome in app mode after startup. --no-open disables browser launch. --no-notices hides the shortcut and copied-document notices, not errors or operation results. CHROME_PATH overrides the Chrome executable.",
 	);
 } else {
 	try {
@@ -13,10 +13,17 @@ if (args.includes("--help") || args.includes("-h")) {
 			throw new Error("PORT は 0〜65535 の整数にしてください。");
 		const server = await createViewerServer({
 			initialPaths: args.filter(
-				(arg) => !["--recursive", "--allow-html", "--no-open"].includes(arg),
+				(arg) =>
+					![
+						"--recursive",
+						"--allow-html",
+						"--no-open",
+						"--no-notices",
+					].includes(arg),
 			),
 			recursive: args.includes("--recursive"),
 			allowHtml: args.includes("--allow-html"),
+			hideNotices: args.includes("--no-notices"),
 			publicOrigin: process.env.VIEWER_ORIGIN,
 		});
 		server.on("error", (error) => {

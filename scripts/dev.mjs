@@ -124,7 +124,7 @@ async function selectAvailablePort(preferredPort, excludedPort) {
 }
 async function loadViewerArgs() {
 	const explicitPaths = args.filter(
-		(arg) => arg !== "--recursive" && arg !== "--allow-html",
+		(arg) => !["--recursive", "--allow-html", "--no-notices"].includes(arg),
 	);
 	let source;
 	try {
@@ -143,10 +143,12 @@ async function loadViewerArgs() {
 		!Array.isArray(config.paths) ||
 		config.paths.some((path) => typeof path !== "string" || !path.trim()) ||
 		(config.recursive !== undefined && typeof config.recursive !== "boolean") ||
-		(config.allowHtml !== undefined && typeof config.allowHtml !== "boolean")
+		(config.allowHtml !== undefined && typeof config.allowHtml !== "boolean") ||
+		(config.hideNotices !== undefined &&
+			typeof config.hideNotices !== "boolean")
 	)
 		throw new Error(
-			"dev.local.json は paths (文字列配列) と任意の recursive / allowHtml (真偽値) を指定してください。",
+			"dev.local.json は paths (文字列配列) と任意の recursive / allowHtml / hideNotices (真偽値) を指定してください。",
 		);
 	return [
 		...(config.recursive && !args.includes("--recursive")
@@ -154,6 +156,9 @@ async function loadViewerArgs() {
 			: []),
 		...(config.allowHtml && !args.includes("--allow-html")
 			? ["--allow-html"]
+			: []),
+		...(config.hideNotices && !args.includes("--no-notices")
+			? ["--no-notices"]
 			: []),
 		...args,
 		...(explicitPaths.length === 0 ? config.paths : []),
@@ -179,7 +184,7 @@ function signalChildGroup(child, signal = "SIGTERM") {
 
 if (args.includes("--help") || args.includes("-h")) {
 	console.log(
-		"Usage: pnpm dev [--no-open] [--recursive] [--allow-html] [file.md | directory ...]\n--allow-html renders raw HTML in trusted Markdown. Uses ports 8080 and 3100 when available; otherwise selects free ports. DEV_PORT and DEV_BACKEND_PORT override them.\nStarts Caddy and a watched reader on loopback without sudo. Ctrl+C stops both. Opens Chrome in app mode once the proxy is ready. --no-open disables browser launch; CHROME_PATH overrides the executable.",
+		"Usage: pnpm dev [--no-open] [--no-notices] [--recursive] [--allow-html] [file.md | directory ...]\n--allow-html renders raw HTML in trusted Markdown. Uses ports 8080 and 3100 when available; otherwise selects free ports. DEV_PORT and DEV_BACKEND_PORT override them.\nStarts Caddy and a watched reader on loopback without sudo. Ctrl+C stops both. Opens Chrome in app mode once the proxy is ready. --no-open disables browser launch; --no-notices hides the shortcut and copied-document notices, not errors or operation results. CHROME_PATH overrides the executable.",
 	);
 } else {
 	const children = new Set();

@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="/style.css">
   <script src="/app.js" type="module"></script>
 </head>
-<body>
+<body data-show-notices="__SHOW_NOTICES__">
   <header class="toolbar">
     <button id="sidebar-toggle" class="icon-button" type="button" aria-controls="sidebar"
       aria-expanded="true" aria-label="サイドバーを隠す" title="サイドバー (⌘B / Ctrl+B)">
@@ -31,11 +31,9 @@
     </div>
   </header>
 
-  <div class="shortcut-notice">
-    ブラウザー標準のショートカットの一部を Viewer の操作に変更している。
-    <a href="/shortcuts" target="_blank" rel="noopener noreferrer">ショートカットの詳細</a>
+  <div id="notices">
+    <div id="status-region" role="status" aria-live="polite"></div>
   </div>
-  <div id="status" role="status" aria-live="polite"></div>
   <div class="workspace" data-has-documents="false">
     <aside id="sidebar" class="sidebar" aria-label="開いているファイル">
       <div class="sidebar-heading">
@@ -139,7 +137,9 @@
       </label>
     </form>
     <div id="results" aria-label="検索結果"></div>
-    <p class="hint">↑ ↓ で選択 · Enter で開く · Esc で閉じる</p>
+    <p class="hint">↑ ↓ で選択 · Enter で開く · Esc で閉じる ·
+      <a href="/shortcuts" target="_blank" rel="noopener noreferrer">ショートカットの詳細</a>
+    </p>
   </dialog>
 </body>
 </html>

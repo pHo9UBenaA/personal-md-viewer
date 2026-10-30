@@ -41,6 +41,8 @@ let filteredKeys = [];
 let pendingOpenKeys = null;
 const closedBatches = [];
 const MAX_CLOSED_BATCHES = 20;
+const showNotices = document.body.dataset.showNotices !== "false";
+let copyNoticeDismissed = false;
 
 const workspace = document.querySelector(".workspace");
 initializeSidebarResize({
@@ -99,9 +101,67 @@ window.addEventListener("storage", (event) => {
 		applyTheme(event.newValue);
 });
 
-function status(message, error = false) {
-	$("status").textContent = message;
-	$("status").dataset.error = String(error);
+function createNotice(id, content, closeLabel, onDismiss) {
+	const notice = document.createElement("div");
+	notice.id = id;
+	notice.className = "notice";
+	const message = document.createElement("span");
+	message.className = "notice-message";
+	message.append(content);
+	const close = button(
+		"×",
+		() => {
+			notice.remove();
+			onDismiss?.();
+			if (active) focusReaderContent();
+			else $("palette-open").focus({ preventScroll: true });
+		},
+		"notice-close",
+	);
+	close.setAttribute("aria-label", closeLabel);
+	close.title = closeLabel;
+	notice.append(message, close);
+	return notice;
+}
+
+if (showNotices) {
+	const content = document.createDocumentFragment();
+	const link = document.createElement("a");
+	link.href = "/shortcuts";
+	link.target = "_blank";
+	link.rel = "noopener noreferrer";
+	link.textContent = "ショートカットの詳細";
+	content.append(
+		"ブラウザー標準のショートカットの一部を Viewer の操作に変更している。 ",
+		link,
+	);
+	const notice = createNotice(
+		"shortcut-notice",
+		content,
+		"ショートカットの案内を閉じる",
+	);
+	notice.classList.add("shortcut-notice");
+	$("notices").prepend(notice);
+}
+
+function status(message, error = false, onDismiss) {
+	$("status")?.remove();
+	if (!message) return;
+	const notice = createNotice("status", message, "通知を閉じる", onDismiss);
+	notice.dataset.error = String(error);
+	$("status-region").append(notice);
+}
+
+function showCopyNotice() {
+	status(
+		showNotices && !copyNoticeDismissed
+			? "コピーを閲覧中（マーカーはコピーに保存し、元ファイルは変更しない）。"
+			: "",
+		false,
+		() => {
+			copyNoticeDismissed = true;
+		},
+	);
 }
 
 async function api(route, body = {}, { asBlob = false } = {}) {
@@ -933,10 +993,7 @@ async function activate(
 				scrollLeft: position.x,
 			}),
 		);
-		if (revision === renderRevision)
-			status(
-				"コピーを閲覧中（マーカーはコピーに保存し、元ファイルは変更しない）。",
-			);
+		if (revision === renderRevision) showCopyNotice();
 	} catch (error) {
 		if (revision === renderRevision) status(error.message, true);
 	}
