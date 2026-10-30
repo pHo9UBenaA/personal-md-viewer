@@ -1,5 +1,75 @@
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { expect } from "@playwright/test";
-import { openFolder, test } from "./helpers.mjs";
+import { createViewerServer } from "../../src/server.mjs";
+import { closeServer, listenOnLoopback } from "../helpers/http.mjs";
+import { openCopiedPath, openFolder, test } from "./helpers.mjs";
+
+for (const allowHtml of [false, true]) {
+	test(`tree starts with copied directories and direct Markdown files (allowHtml=${allowHtml})`, async ({
+		page,
+		viewer,
+	}) => {
+		const directory = await mkdtemp(join(viewer.directory, "tree-root-"));
+		await mkdir(join(directory, "notes/content"), { recursive: true });
+		await mkdir(join(directory, "work"));
+		await writeFile(join(directory, "README.md"), "# Welcome");
+		const nested = join(directory, "notes/content/Intro.md");
+		await writeFile(nested, "# Introduction");
+		await writeFile(join(directory, "work/Task.md"), "# Task");
+		const server = await createViewerServer({
+			contentDirectory: directory,
+			allowHtml,
+		});
+		try {
+			await page.goto(await listenOnLoopback(server));
+			const topFolders = page.locator(
+				"#file-list > .tree-folder > .tree-folder-row",
+			);
+			await expect(topFolders).toHaveText(["notes", "work"]);
+			const directFile = page.locator("#file-list > .tree-file");
+			await expect(directFile).toHaveText("README.md");
+			await expect(directFile).toHaveAttribute("aria-level", "1");
+			await expect(page.getByRole("tab")).toHaveCount(0);
+			const notes = page.getByRole("treeitem", {
+				name: "notes フォルダー",
+				exact: true,
+			});
+			await expect(notes).toHaveAttribute("aria-expanded", "false");
+			await notes.focus();
+			await page.keyboard.press("ArrowRight");
+			await expect(notes).toHaveAttribute("aria-expanded", "true");
+			const content = page.getByRole("treeitem", {
+				name: "content フォルダー",
+				exact: true,
+			});
+			await expect(content).toBeVisible();
+			await expect(content).toHaveAttribute("aria-level", "2");
+			await expect(content).toHaveAttribute("aria-expanded", "false");
+
+			await page.locator("#filter").fill("Intro.md");
+			await page
+				.getByRole("treeitem", { name: "Intro.md", exact: true })
+				.click();
+			await expect(page.frameLocator("#content").locator("h1")).toHaveText(
+				"Introduction",
+			);
+			await page.locator("#filter").fill("");
+			await expect(content).toHaveAttribute("aria-expanded", "false");
+			await openCopiedPath(page, nested);
+			await expect(topFolders).toHaveText(["notes", "work"]);
+			await expect(page.locator("#file-list .tree-file")).toHaveCount(3);
+			await page.reload();
+			await expect(topFolders).toHaveText(["notes", "work"]);
+			await expect(page.locator("#file-list .tree-file")).toHaveCount(3);
+			await expect(page.frameLocator("#content").locator("h1")).toHaveText(
+				"Introduction",
+			);
+		} finally {
+			await closeServer(server);
+		}
+	});
+}
 
 test("file tree preserves collapsed folders while filtering and supports keyboard expansion", async ({
 	folder,

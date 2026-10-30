@@ -24,14 +24,10 @@ function getOrCreateDirectory(parent, key, name) {
 export function treeFromDocuments(documents) {
 	const root = { directories: new Map(), files: [] };
 	for (const [key, doc] of documents) {
-		const parts = doc.label.split(/[\\/]/).filter(Boolean);
+		const parts = (doc.relativePath ?? doc.label)
+			.split(/[\\/]/)
+			.filter(Boolean);
 		let branch = root;
-		if (doc.root) {
-			const rootName =
-				doc.root.split(/[\\/]/).filter(Boolean).at(-1) ?? doc.root;
-			// Equal folder names in different roots must remain separate branches.
-			branch = getOrCreateDirectory(branch, `root:${doc.root}`, rootName);
-		}
 		for (const part of parts.slice(0, -1))
 			branch = getOrCreateDirectory(branch, part, part);
 		branch.files.push({ key, doc, name: parts.at(-1) ?? doc.name });

@@ -43,9 +43,17 @@ test("findDocuments limits matches in registration order without scanning later 
 	assert.deepEqual(findDocuments(documents, "notes", 0), []);
 });
 
-test("treeFromDocuments groups files under their root and reuses nested folders", () => {
-	const first = { root: "/content/notes", label: "nested/First.md" };
-	const second = { root: "/content/notes", label: "nested/Second.md" };
+test("treeFromDocuments starts below content and reuses nested folders", () => {
+	const first = {
+		root: "/content",
+		label: "notes/nested/First.md",
+		relativePath: "notes/nested/First.md",
+	};
+	const second = {
+		root: "/content/notes",
+		label: "nested/Second.md",
+		relativePath: "notes/nested/Second.md",
+	};
 	const input = new Map([
 		["first", first],
 		["second", second],
@@ -53,7 +61,7 @@ test("treeFromDocuments groups files under their root and reuses nested folders"
 	const tree = treeFromDocuments(input);
 	assert.equal(tree.directories.size, 1);
 	assert.deepEqual(tree.files, []);
-	const root = tree.directories.get("root:/content/notes");
+	const root = tree.directories.get("notes");
 	assert.equal(root.name, "notes");
 	assert.equal(root.directories.size, 1);
 	assert.deepEqual(root.directories.get("nested").files, [
@@ -61,17 +69,17 @@ test("treeFromDocuments groups files under their root and reuses nested folders"
 		{ key: "second", doc: second, name: "Second.md" },
 	]);
 	assert.equal(input.get("first"), first);
-	assert.equal(first.label, "nested/First.md");
+	assert.equal(first.label, "notes/nested/First.md");
 });
 
-test("treeFromDocuments keeps equal folder names in different roots separate", () => {
+test("treeFromDocuments keeps equal folder names in separate copied directories", () => {
 	const tree = treeFromDocuments([
-		["first", { root: "/content/one/notes", label: "First.md" }],
-		["second", { root: "/content/two/notes", label: "Second.md" }],
+		["first", { label: "First.md", relativePath: "one/notes/First.md" }],
+		["second", { label: "Second.md", relativePath: "two/notes/Second.md" }],
 	]);
 	assert.equal(tree.directories.size, 2);
-	const first = tree.directories.get("root:/content/one/notes");
-	const second = tree.directories.get("root:/content/two/notes");
+	const first = tree.directories.get("one").directories.get("notes");
+	const second = tree.directories.get("two").directories.get("notes");
 	assert.equal(first.name, "notes");
 	assert.equal(second.name, "notes");
 	assert.equal(first.files[0].key, "first");
@@ -82,13 +90,33 @@ test("treeFromDocuments accepts Windows separators and preserves special filenam
 	const doc = {
 		root: "C:\\content\\読書",
 		label: "nested\\日本語 # %.md",
+		relativePath: "読書\\nested\\日本語 # %.md",
 	};
 	const tree = treeFromDocuments([["document", doc]]);
-	const root = tree.directories.get("root:C:\\content\\読書");
+	const root = tree.directories.get("読書");
 	assert.equal(root.name, "読書");
 	assert.deepEqual(root.directories.get("nested").files, [
 		{ key: "document", doc, name: "日本語 # %.md" },
 	]);
+});
+
+test("treeFromDocuments puts direct Markdown files at the top level", () => {
+	const doc = {
+		root: "/content",
+		label: "Start.md",
+		relativePath: "Start.md",
+	};
+	const tree = treeFromDocuments([["start", doc]]);
+	assert.equal(tree.directories.size, 0);
+	assert.deepEqual(tree.files, [{ key: "start", doc, name: "Start.md" }]);
+});
+
+test("treeFromDocuments preserves nested directories named content", () => {
+	const tree = treeFromDocuments([
+		["nested", { label: "Note.md", relativePath: "notes/content/Note.md" }],
+	]);
+	const notes = tree.directories.get("notes");
+	assert.equal(notes.directories.get("content").files[0].key, "nested");
 });
 
 test("documentKeysFromTree follows sorted folders then sorted files", () => {
