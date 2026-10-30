@@ -162,6 +162,7 @@ kbd {
 	container-type: inline-size;
 	padding: 8px;
 	overflow: auto;
+	scrollbar-gutter: stable;
 }
 #sidebar-resizer {
 	position: relative;
@@ -452,11 +453,22 @@ form > label {
 	color: var(--muted);
 }
 #reader {
+	position: relative;
 	display: flex;
 	flex: 1;
 	flex-direction: column;
 	min-height: 0;
 	background: var(--surface);
+}
+.reader-loading {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	padding: 6px 12px;
+	font-size: var(--control-font-size);
+	color: var(--muted);
+	pointer-events: none;
+	transform: translate(-50%, -50%);
 }
 #reader[hidden],
 #empty[hidden] {
@@ -732,7 +744,8 @@ dialog::backdrop {
 		grid-template-columns: minmax(0, 1fr);
 	}
 	.sidebar {
-		max-height: min(30dvh, 240px);
+		/* Reserve the pane while the current outline is cleared and rebuilt. */
+		height: min(30dvh, 240px);
 		padding: 6px 8px;
 		border-bottom: 1px solid var(--border);
 	}

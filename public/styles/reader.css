@@ -1,6 +1,7 @@
 @import url("/theme.css");
 
 :root {
+	scrollbar-gutter: stable;
 	font: 16px / 1.7 var(--ui-font);
 	color: var(--text);
 	overflow-wrap: anywhere;

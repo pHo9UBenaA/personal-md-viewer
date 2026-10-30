@@ -4,6 +4,7 @@ const MAX_PAGE_IMAGES = 100;
 
 export function initializeReader({
 	container,
+	loading,
 	outline,
 	search,
 	highlights,
@@ -22,7 +23,12 @@ export function initializeReader({
 	let blobUrls = [];
 	let listeners = null;
 	const getFrame = () => container.querySelector("#content");
+	function setLoading(value) {
+		loading.hidden = !value;
+		container.setAttribute("aria-busy", String(value));
+	}
 	function clear() {
+		setLoading(false);
 		search.clearDocument();
 		if (displayedView) {
 			const { key, mode, frame } = displayedView;
@@ -184,6 +190,7 @@ export function initializeReader({
 			search.setDocument(readerDocument, key);
 			if (!hash) frame.contentWindow.scrollTo(scrollLeft, scrollTop);
 			frame.style.visibility = "visible";
+			setLoading(false);
 			if (pendingFocusRevision === revision) focus(revision);
 		};
 		// WebKit needs allow-scripts for parent-installed listeners; the document CSP forbids execution.
@@ -208,6 +215,7 @@ export function initializeReader({
 	document.addEventListener("pointerdown", cancelFocus);
 	return {
 		clear,
+		setLoading,
 		focus,
 		cancelFocus,
 		scrollTop: () => getFrame().contentWindow?.scrollY ?? 0,

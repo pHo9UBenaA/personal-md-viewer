@@ -5,6 +5,8 @@ import {
 } from "./documents.js";
 import { createButton } from "./dom.js";
 
+const FILTER_DELAY_MS = 150;
+
 export function initializeTree({
 	list,
 	filter,
@@ -13,11 +15,23 @@ export function initializeTree({
 	documents,
 	getActive,
 	activate,
-	redraw,
 }) {
 	const expandedFolders = new Set();
 	const filterCollapsedFolders = new Set();
 	let filteredKeys = [];
+	let query = "";
+	let filterTimer = null;
+	let composing = false;
+	let documentTree = null;
+	let renderedTree = null;
+	const fileItems = new Map();
+	let activeItem = null;
+
+	function redraw() {
+		renderedTree = null;
+		draw();
+	}
+
 	function drawTreeBranch(
 		branch,
 		parent,
@@ -81,24 +95,71 @@ export function initializeTree({
 			item.setAttribute("aria-label", name);
 			item.setAttribute("aria-level", String(level));
 			item.setAttribute("aria-current", String(getActive() === key));
+			fileItems.set(key, item);
 			parent.append(item);
 		}
 	}
 
-	function draw() {
-		list.replaceChildren();
-		const query = filter.value.trim();
-		const tree = treeFromDocuments(findDocuments(documents, query));
-		filteredKeys = query ? documentKeysFromTree(tree) : [];
-		openMatches.disabled = filteredKeys.length === 0;
-		matchCount.hidden = !query;
-		matchCount.textContent = `${filteredKeys.length} 件`;
-		drawTreeBranch(tree, list, [], 1, Boolean(query));
+	function filterPending() {
+		return composing || filter.value.trim() !== query;
 	}
 
-	filter.addEventListener("input", () => {
-		filterCollapsedFolders.clear();
-		redraw();
+	function updateSearchState() {
+		const pending = filterPending();
+		list.setAttribute("aria-busy", String(pending));
+		openMatches.disabled = pending || filteredKeys.length === 0;
+	}
+
+	function draw() {
+		if (!documentTree) {
+			documentTree = treeFromDocuments(findDocuments(documents, query));
+			filteredKeys = query ? documentKeysFromTree(documentTree) : [];
+			matchCount.hidden = !query;
+			matchCount.textContent = `${filteredKeys.length} 件`;
+		}
+		updateSearchState();
+		if (renderedTree !== documentTree) {
+			const fragment = document.createDocumentFragment();
+			fileItems.clear();
+			drawTreeBranch(documentTree, fragment, [], 1, Boolean(query));
+			list.replaceChildren(fragment);
+			renderedTree = documentTree;
+		}
+		// Navigation changes only the old and new active rows, not the whole tree.
+		const nextItem = fileItems.get(getActive()) ?? null;
+		if (activeItem !== nextItem) {
+			activeItem?.setAttribute("aria-current", "false");
+			nextItem?.setAttribute("aria-current", "true");
+			activeItem = nextItem;
+		}
+	}
+
+	function applyFilter() {
+		clearTimeout(filterTimer);
+		if (composing) return;
+		const nextQuery = filter.value.trim();
+		if (nextQuery !== query) {
+			query = nextQuery;
+			filterCollapsedFolders.clear();
+			documentTree = null;
+		}
+		draw();
+	}
+
+	function scheduleFilter() {
+		clearTimeout(filterTimer);
+		updateSearchState();
+		if (!composing) filterTimer = setTimeout(applyFilter, FILTER_DELAY_MS);
+	}
+
+	filter.addEventListener("input", scheduleFilter);
+	filter.addEventListener("compositionstart", () => {
+		composing = true;
+		scheduleFilter();
+	});
+	filter.addEventListener("compositionend", () => {
+		composing = false;
+		scheduleFilter();
 	});
 	list.addEventListener("keydown", (event) => {
 		if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)
@@ -134,7 +195,7 @@ export function initializeTree({
 		event.preventDefault();
 		const folders = [...tree.querySelectorAll(".tree-folder")];
 		if (!folders.length) return;
-		if (filter.value.trim()) {
+		if (query) {
 			for (const folder of folders)
 				filterCollapsedFolders.add(folder.dataset.folderKey);
 		} else expandedFolders.clear();
@@ -147,5 +208,11 @@ export function initializeTree({
 				.find((folder) => folder.dataset.folderKey === focusKey)
 				?.focus();
 	});
-	return { draw, matchingKeys: () => filteredKeys };
+	return {
+		draw,
+		invalidate: () => {
+			documentTree = null;
+		},
+		matchingKeys: () => (filterPending() ? [] : filteredKeys),
+	};
 }

@@ -109,6 +109,7 @@ test("bulk open with no active tab activates only the first tree result", async 
 	await registerMatches(page, viewer);
 	await page.locator("#close-all").click();
 	await page.locator("#filter").fill("match-");
+	await expect(page.locator("#filter-count")).toHaveText("3 件");
 	const names = await page.locator("#file-list .tree-file").allTextContents();
 	let reads = 0;
 	page.on("request", (request) => {

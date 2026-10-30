@@ -63,7 +63,6 @@ const treeController = initializeTree({
 	documents: availableDocuments,
 	getActive: () => active,
 	activate,
-	redraw: drawNavigation,
 });
 initializeSidebarResize({
 	workspace,
@@ -103,6 +102,7 @@ const highlightToolbar = initializeHighlightToolbar({
 });
 const reader = initializeReader({
 	container: byId("reader"),
+	loading: byId("reader-loading"),
 	outline: byId("outline"),
 	search: readerSearch,
 	highlights: highlightToolbar,
@@ -204,6 +204,7 @@ function registerDocuments(documents) {
 			Object.assign(availableDocuments.get(key), doc);
 		else availableDocuments.set(key, doc);
 	}
+	treeController.invalidate();
 }
 
 async function addDocuments(documents) {
@@ -456,7 +457,7 @@ async function reopenClosedTabs() {
 		Object.assign(current, doc, { loaded: false });
 		delete current.source;
 		delete current.html;
-		availableDocuments.set(key, current);
+		registerDocuments([current]);
 		entries.splice(Math.min(index, entries.length), 0, [key, current]);
 	}
 	tabs.clear();
@@ -519,7 +520,7 @@ async function restoreView(state) {
 				const saved = paths.get(key);
 				doc = (await api("restore", saved)).document;
 				if (revision !== navigationRevision) return;
-				availableDocuments.set(keyFor(doc), doc);
+				registerDocuments([doc]);
 			} catch (error) {
 				missingPaths++;
 				restoreError ||= error.message;
@@ -607,7 +608,8 @@ async function activate(
 	byId("document-path").title = doc.path;
 	byId("reload").title = "コピーから読み直す";
 	document.title = `${doc.name} — Markdown Viewer`;
-	status("読み込み中…");
+	showCopyNotice();
+	reader.setLoading(true);
 	try {
 		await loadDocumentContent(doc);
 		if (revision !== renderRevision) return;
@@ -622,7 +624,10 @@ async function activate(
 		});
 		if (revision === renderRevision) showCopyNotice();
 	} catch (error) {
-		if (revision === renderRevision) status(error.message, true);
+		if (revision === renderRevision) {
+			reader.setLoading(false);
+			status(error.message, true);
+		}
 	}
 }
 
@@ -724,10 +729,9 @@ runExclusiveAction(async () => {
 	if (savedView?.tabs?.length) {
 		await restoreView(savedView);
 		const data = await api("initial");
-		for (const doc of data.documents) {
-			const key = keyFor(doc);
-			if (!availableDocuments.has(key)) availableDocuments.set(key, doc);
-		}
+		registerDocuments(
+			data.documents.filter((doc) => !availableDocuments.has(keyFor(doc))),
+		);
 		drawNavigation();
 		return;
 	}
