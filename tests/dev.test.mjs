@@ -55,7 +55,7 @@ function launchDev({
 	openBrowser = false,
 	args = [],
 } = {}) {
-	const env = { ...process.env };
+	const env = { ...process.env, VIEWER_APP_PATH: "" };
 	if (chromePath) env.CHROME_PATH = chromePath;
 	if (proxyPort !== undefined) env.DEV_PORT = String(proxyPort);
 	if (backendPort !== undefined) env.DEV_BACKEND_PORT = String(backendPort);

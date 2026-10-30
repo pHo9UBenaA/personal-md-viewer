@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { access } from "node:fs/promises";
 import { homedir } from "node:os";
 import { posix, win32 } from "node:path";
+import { findInstalledViewerApp, openInstalledViewerApp } from "./web-app.mjs";
 
 export function chromeCandidates({
 	platform = process.platform,
@@ -53,10 +54,40 @@ export async function openChromeApp(
 		env = process.env,
 		checkExecutable = isExecutable,
 		spawnProcess = spawn,
+		home = homedir(),
+		findWebApp = findInstalledViewerApp,
+		openWebApp = openInstalledViewerApp,
+		onNotice = console.log,
 	} = {},
 ) {
+	if (env.VIEWER_APP_PATH && platform !== "darwin")
+		throw new Error(
+			"VIEWER_APP_PATH による独立アプリの起動は macOS 専用です。",
+		);
+	if (platform === "darwin" && (env.VIEWER_APP_PATH || !env.CHROME_PATH)) {
+		const appPath = await findWebApp(url, {
+			appPath: env.VIEWER_APP_PATH,
+			home,
+		});
+		if (appPath) {
+			try {
+				await openWebApp(appPath, { env });
+				onNotice(`Viewer app: ${appPath}`);
+				return { mode: "web-app", path: appPath };
+			} catch (error) {
+				if (env.VIEWER_APP_PATH) throw error;
+				onNotice(
+					`独立アプリを起動できないため、Chrome アプリモードで開きます。${error.message}`,
+				);
+			}
+		} else {
+			onNotice(
+				"独立アプリが見つからないため、Chrome アプリモードで開きます。⌘Tab で分けるには、通常の Chrome で表示された URL を開き、「ページをアプリとしてインストール」を選んでください。",
+			);
+		}
+	}
 	let executable;
-	for (const path of chromeCandidates({ platform, env })) {
+	for (const path of chromeCandidates({ platform, env, home })) {
 		if (await checkExecutable(path)) {
 			executable = path;
 			break;
@@ -78,4 +109,5 @@ export async function openChromeApp(
 			resolve();
 		});
 	});
+	return { mode: "app-mode" };
 }

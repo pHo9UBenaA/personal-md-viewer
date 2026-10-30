@@ -14,11 +14,32 @@ pnpm start
 
 Markdown は 1 ファイル 1 MiB、対応画像は 1 ファイル 5 MiB、フォルダーは深さ 32 までコピーできる。既存の同名コピーは上書きしない。コピーと元ファイルは同期せず、マーカーはコピーだけに保存する。
 
-起動すると Chrome のアプリウィンドウが自動で開くため、PWA のインストールは不要。Chrome が見つからない場合や自動起動に失敗した場合も、サーバーは起動したまま URL（既定は `http://127.0.0.1:3000`）を表示する。Chrome を導入するか、表示された URL を手動で開く。macOS では通常のアプリ配置、Windows では標準のインストール先、Linux では PATH 上の `google-chrome` / `google-chrome-stable` を探す。別の場所に導入した場合は `CHROME_PATH` に実行ファイルのパスを指定する。
+起動すると閲覧ウィンドウが自動で開く。macOS では、その URL 用にインストールした Markdown Viewer アプリを優先し、未インストールなら従来の Chrome アプリモードで開く。Windows / Linux は従来どおり Chrome アプリモードを使う。Chrome が見つからない場合や自動起動に失敗した場合も、サーバーは起動したまま URL（既定は `http://127.0.0.1:3000`）を表示する。Chrome を導入するか、表示された URL を手動で開く。macOS では通常のアプリ配置、Windows では標準のインストール先、Linux では PATH 上の `google-chrome` / `google-chrome-stable` を探す。別の場所に導入した場合は `CHROME_PATH` に実行ファイルのパスを指定する。
 
 サーバーは管理者権限を使わずに起動し、`127.0.0.1` だけで待ち受ける。終了するには、起動したターミナルで Ctrl+C を押す。Chrome のウィンドウを閉じてもサーバーは止まらず、サーバーを終了しても Chrome は閉じない。サーバーを再起動した後は、既存のウィンドウも ⌘⇧R / Ctrl+Shift+R で再読み込みする。
 
 引数なしでは `content/` 配下の Markdown を再帰的に一覧登録する。空の `content/` でも起動できる。
+
+### macOS で通常の Chrome と分ける
+
+Viewer を Chrome のウェブアプリとして一度インストールすると、Dock と ⌘Tab に通常の Chrome とは別のアプリとして表示される。追加の npm パッケージやビルドは不要だが、サーバーの起動は引き続き必要となる。
+
+1. `pnpm start`、開発時は `DEV_PORT=8080 pnpm dev` でサーバーを起動する。
+2. ターミナルに表示された URL を、通常の Chrome のタブで開く。既定の通常起動は `http://127.0.0.1:3000`、上記の開発起動は `http://md.localhost:8080`。
+3. Chrome のメニューで「キャスト、保存、共有」→「ページをアプリとしてインストール」を選び、「Markdown Viewer」をインストールする。ウィンドウで開く設定を有効にする。通常のタブで開いてしまう場合は `chrome://apps` で Viewer の設定をウィンドウ表示に変更する。登録後に専用アプリを使っても、コピー内だけを閲覧・保存する制限は変わらない。
+4. 以後は同じ URL でサーバーを起動すると、インストール済みのアプリを自動で開く。開発中のソース変更ではウィンドウを追加せず、既存の画面を ⌘⇧R で再読み込みする。
+
+URL はホスト名・ポートまで一致させる。`localhost` と `127.0.0.1`、通常起動と開発起動は別の登録になる。`PORT=0` や開発ポートの自動変更で URL が変わった場合は、その URL 用のアプリがないため Chrome アプリモードで開く。独立アプリを使い続ける場合は、登録時と同じ固定ポートを使う。アプリはオフライン閲覧用ではなく、Service Worker や文書のオフラインキャッシュは追加しない。
+
+自動探索の対象は `~/Applications/Chrome Apps.localized/` と `/Applications/Chrome Apps.localized/`。アプリを移動した場合は、起動対象を明示できる。
+
+```sh
+VIEWER_APP_PATH="$HOME/Applications/Chrome Apps.localized/Markdown Viewer.app" pnpm start
+```
+
+`VIEWER_APP_PATH` は macOS 専用で、現在の URL 用の Viewer アプリだけを指定できる。パスや登録 URL が違う場合はエラーを表示し、別のアプリや Chrome を代わりに開かない。自動探索で見つからない場合や macOS の起動要求が失敗した場合は、Chrome アプリモードに戻る。`CHROME_PATH` だけを指定した場合は自動探索をせず、その Chrome をアプリモードで開く。両方を指定した場合は `VIEWER_APP_PATH` を優先する。`--no-open` はどちらの自動起動も止める。
+
+登録を削除するには Chrome の `chrome://apps` から Viewer をアンインストールする。再登録する場合は、同じ URL のサーバーを起動して上記の操作を行う。サーバーを再起動した後は、開いたままのアプリも ⌘⇧R で再読み込みする。
 
 ## コピーの管理
 

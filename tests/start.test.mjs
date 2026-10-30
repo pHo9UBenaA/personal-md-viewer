@@ -16,7 +16,11 @@ after(async () => {
 	if (project) await rm(project, { recursive: true, force: true });
 });
 
-async function launch(args = [], chromePath = chrome.executable) {
+async function launch(
+	args = [],
+	chromePath = chrome.executable,
+	extraEnv = {},
+) {
 	await rm(chrome.log, { force: true });
 	const child = spawn(process.execPath, ["src/index.mjs", ...args], {
 		cwd: project,
@@ -25,6 +29,8 @@ async function launch(args = [], chromePath = chrome.executable) {
 			PORT: "0",
 			VIEWER_ORIGIN: "",
 			CHROME_PATH: chromePath,
+			VIEWER_APP_PATH: "",
+			...extraEnv,
 		},
 		stdio: ["ignore", "pipe", "pipe"],
 	});
@@ -126,6 +132,27 @@ test("--no-notices hides only the onboarding notices", cliOptions, async () => {
 		await server.exited;
 	}
 });
+
+test(
+	"an invalid explicit app leaves the server usable without launching Chrome",
+	cliOptions,
+	async () => {
+		const server = await launch([], chrome.executable, {
+			VIEWER_APP_PATH: join(project, "missing.app"),
+		});
+		try {
+			const url = await server.ready;
+			await waitUntil(server.errors, (text) =>
+				text.includes("VIEWER_APP_PATH"),
+			);
+			assert.equal((await fetch(url)).status, 200);
+			await assert.rejects(readFile(chrome.log), { code: "ENOENT" });
+		} finally {
+			server.child.kill("SIGTERM");
+			await server.exited;
+		}
+	},
+);
 
 test(
 	"missing Chrome leaves a usable server and reports its URL",

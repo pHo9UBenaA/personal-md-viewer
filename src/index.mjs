@@ -4,7 +4,7 @@ import { createViewerServer } from "./server.mjs";
 const args = process.argv.slice(2).filter((arg) => arg !== "--");
 if (args.includes("--help") || args.includes("-h")) {
 	console.log(
-		"Usage: pnpm start [--no-open] [--no-notices] [--recursive] [--allow-html] [content/file.md | content/directory ...]\n\nOnly content/ is accessible. Run pnpm copy-docs SOURCE_DIRECTORY first. Without paths, all copied Markdown is listed recursively.\n--allow-html renders raw HTML in trusted Markdown. PORT defaults to 3000; PORT=0 selects a free port.\nOpens Chrome in app mode after startup. --no-open disables browser launch. --no-notices hides the shortcut and copied-document notices, not errors or operation results. CHROME_PATH overrides the Chrome executable.",
+		"Usage: pnpm start [--no-open] [--no-notices] [--recursive] [--allow-html] [content/file.md | content/directory ...]\n\nOnly content/ is accessible. Run pnpm copy-docs SOURCE_DIRECTORY first. Without paths, all copied Markdown is listed recursively.\n--allow-html renders raw HTML in trusted Markdown. PORT defaults to 3000; PORT=0 selects a free port.\nOn macOS, opens the installed Markdown Viewer web app for this URL; otherwise uses Chrome app mode. Install once from Chrome to get a separate Dock / Cmd+Tab entry. --no-open disables browser launch. --no-notices hides the shortcut and copied-document notices, not errors or operation results. CHROME_PATH selects a Chrome executable and bypasses app discovery. VIEWER_APP_PATH explicitly selects a matching macOS .app.",
 	);
 } else {
 	try {

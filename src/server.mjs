@@ -6,6 +6,13 @@ import { renderMarkdown } from "./render.mjs";
 
 const assets = new Map([
 	["/", ["index.html", "text/html; charset=utf-8"]],
+	[
+		"/manifest.webmanifest",
+		["manifest.webmanifest", "application/manifest+json; charset=utf-8"],
+	],
+	["/icons/viewer.svg", ["icons/viewer.svg", "image/svg+xml"]],
+	["/icons/viewer-192.png", ["icons/viewer-192.png", "image/png"]],
+	["/icons/viewer-512.png", ["icons/viewer-512.png", "image/png"]],
 	["/app.js", ["app.js", "text/javascript; charset=utf-8"]],
 	["/tabs.js", ["tabs.js", "text/javascript; charset=utf-8"]],
 	["/reader-search.js", ["reader-search.js", "text/javascript; charset=utf-8"]],
@@ -40,7 +47,7 @@ const assets = new Map([
 	],
 ]);
 const contentSecurityPolicy =
-	"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; font-src 'self'; connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+	"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; font-src 'self'; manifest-src 'self'; connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 const withoutHighlights = (html) =>
 	html

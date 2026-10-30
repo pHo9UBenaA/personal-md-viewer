@@ -10,7 +10,7 @@
 pnpm install --frozen-lockfile
 ```
 
-起動すると Chrome のアプリウィンドウが開き、PWA のインストールや追加の npm パッケージは不要。macOS の通常のアプリ配置、Windows の標準インストール先、Linux の PATH 上の `google-chrome` / `google-chrome-stable` を探す。Chrome が見つからない場合や自動起動に失敗した場合も、サーバーは起動したまま URL を表示する。表示された URL は手動で開ける。別の場所の Chrome は `CHROME_PATH` に実行ファイルのパスを指定する。`pnpm start --no-open` / `pnpm dev --no-open` では自動起動しない。
+起動すると閲覧ウィンドウが開く。macOS では起動 URL 用にインストール済みの Viewer アプリを優先し、未インストール時と Windows / Linux は Chrome アプリモードを使う。追加の npm パッケージやビルドは不要。macOS の通常のアプリ配置、Windows の標準インストール先、Linux の PATH 上の `google-chrome` / `google-chrome-stable` を探す。Chrome が見つからない場合や自動起動に失敗した場合も、サーバーは起動したまま URL を表示する。表示された URL は手動で開ける。別の場所の Chrome は `CHROME_PATH` に実行ファイルのパスを指定する。`pnpm start --no-open` / `pnpm dev --no-open` では自動起動しない。
 
 通常の閲覧に Caddy は不要だが、`pnpm dev` と開発サーバーの起動・終了テストには別途 Caddy が必要となる。macOS で Homebrew を使う場合は次で導入できる。
 
@@ -48,6 +48,16 @@ Caddy の起動が完了すると、`Dev ready:` に表示された URL（通常
 `src` / `public` のファイルを変更すると閲覧サーバーが再起動する。Chrome のウィンドウは追加で開かないため、既存の画面を ⌘⇧R / Ctrl+Shift+R で手動で再読み込みする。⌘R / Ctrl+R は表示中の文書だけを再読み込みするため、この用途には使わない。閲覧対象の Markdown の更新は監視の対象ではないため、本文上部の「再読み込み」で反映する。
 
 同じリポジトリで `pnpm dev` を再実行すると、以前このスクリプトが起動した Caddy と閲覧サーバーを終了してから起動する。既存の Caddy 設定や常駐サービスは変更しない。
+
+### 通常の Chrome と別アプリにする（macOS）
+
+`DEV_PORT=8080 pnpm dev` で URL を固定し、通常の Chrome で `http://md.localhost:8080` を開く。Chrome の「キャスト、保存、共有」→「ページをアプリとしてインストール」で Markdown Viewer を一度登録し、ウィンドウで開く設定を有効にする。通常のタブで開いてしまう場合は `chrome://apps` でウィンドウ表示に変更する。以後は同じ URL の起動時に専用アプリを開き、Dock と ⌘Tab で通常の Chrome と分けられる。サーバーとプロキシは引き続き必要で、ソース変更後はアプリ内でも ⌘⇧R で画面全体を再読み込みする。
+
+アプリは `~/Applications/Chrome Apps.localized/` と `/Applications/Chrome Apps.localized/` から探す。URL はホスト名・ポートまで一致する必要があり、ポートの自動変更で別の URL になれば Chrome アプリモードに戻る。通常起動の `http://127.0.0.1:3000` は別の登録になる。登録を削除するには Chrome の `chrome://apps` からアンインストールする。
+
+移動済みのアプリを指定するには、`VIEWER_APP_PATH` に `.app` の絶対パスを設定する。現在の URL 用の Viewer アプリでなければエラーを表示し、別アプリや Chrome を代わりに開かない。`CHROME_PATH` だけを指定すると自動探索せず、その Chrome をアプリモードで開く。両方を指定した場合は `VIEWER_APP_PATH` を優先する。`--no-open` はどちらも自動起動しない。
+
+マニフェストとアプリアイコンは固定のローカル資産として配信する。Service Worker は登録せず、文書のオフラインキャッシュも追加しない。アプリをインストールしても、コピー内の文書だけを閲覧・保存する制限は変えない。
 
 ### 案内を非表示にする
 
@@ -156,6 +166,7 @@ pnpm audit
 - 本文にフォーカスした状態でも、⌘R / Ctrl+R が表示中の文書だけを読み直し、⌘⇧F / Ctrl+Shift+F が Viewer の全画面表示を切り替えることを確認する。Chrome 自体の全画面化ではない。
 - ⌘B / Ctrl+B がサイドバーを切り替え、⌘P / Ctrl+P がパレット、⌘⇧V / Ctrl+Shift+V が Raw / Preview、⌘⇧T / Ctrl+Shift+T が Viewer 内の閉じたタブの復元になることを確認する。⌘F / Ctrl+F、⌘G / Ctrl+G、⌘⇧G / Ctrl+Shift+G が本文だけを検索し、Chrome の検索や印刷・タブ復元にならないことも確認する。
 - 「ショートカットの詳細」は通常のブラウザータブで開き、そのページではキーを上書きしないことを確認する。Viewer 外にフォーカスがある場合も Chrome の操作になる。通常の Chrome タブでは閉じるキーがブラウザーに優先される場合があるため、× ボタンやタブ上の Delete / Backspace も確認する。
+- macOS では固定 URL で一度インストールした Viewer が通常の Chrome とは別の Dock / ⌘Tab の項目になること、同じ URL ではインストール済みアプリを起動し、別の URL では誤って既存アプリを開かないことを確認する。確認には一時プロファイルを使い、既存の Chrome の登録やデータは変更しない。
 - `--no-open` がウィンドウを開かず、開発時のソース変更による再起動がウィンドウを追加しないことを確認する。サーバーと Chrome は別々に終了する。
 
 ## 構成と依存の方針

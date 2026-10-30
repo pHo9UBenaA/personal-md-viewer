@@ -254,6 +254,45 @@ test("only the fixed UI icons are served as SVG", async () => {
 		assert.equal((await fetch(base + route)).status, 404);
 });
 
+test("the install manifest and fixed app icons are local, token-free and uncached", async () => {
+	const response = await fetch(`${base}/manifest.webmanifest`);
+	assert.equal(response.status, 200);
+	assert.match(
+		response.headers.get("content-type"),
+		/application\/manifest\+json/,
+	);
+	assert.equal(response.headers.get("cache-control"), "no-store");
+	assert.match(
+		response.headers.get("content-security-policy"),
+		/manifest-src 'self'/,
+	);
+	const text = await response.text();
+	assert.ok(!text.includes(token));
+	const manifest = JSON.parse(text);
+	assert.equal(manifest.id, "/markdown-viewer");
+	assert.equal(manifest.name, "Markdown Viewer");
+	assert.equal(manifest.display, "standalone");
+	assert.equal(manifest.start_url, "/");
+	assert.equal(manifest.scope, "/");
+	for (const size of [192, 512]) {
+		const icon = await fetch(`${base}/icons/viewer-${size}.png`);
+		assert.equal(icon.headers.get("content-type"), "image/png");
+		const bytes = Buffer.from(await icon.arrayBuffer());
+		assert.deepEqual(
+			bytes.subarray(0, 8),
+			Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+		);
+		assert.equal(bytes.readUInt32BE(16), size);
+		assert.equal(bytes.readUInt32BE(20), size);
+	}
+	assert.equal(
+		(await fetch(`${base}/icons/viewer.svg`)).headers.get("content-type"),
+		"image/svg+xml",
+	);
+	assert.equal((await fetch(`${base}/icons/arbitrary.png`)).status, 404);
+	assert.equal((await fetch(`${base}/manifest.json`)).status, 404);
+});
+
 test("bundled fonts retain their binary bytes and include licenses", async () => {
 	for (const name of ["IBMPlexSans-Regular.ttf", "Lilex-Regular.ttf"]) {
 		const response = await fetch(`${base}/fonts/${name}`);

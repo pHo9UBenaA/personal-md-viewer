@@ -184,7 +184,7 @@ function signalChildGroup(child, signal = "SIGTERM") {
 
 if (args.includes("--help") || args.includes("-h")) {
 	console.log(
-		"Usage: pnpm dev [--no-open] [--no-notices] [--recursive] [--allow-html] [file.md | directory ...]\n--allow-html renders raw HTML in trusted Markdown. Uses ports 8080 and 3100 when available; otherwise selects free ports. DEV_PORT and DEV_BACKEND_PORT override them.\nStarts Caddy and a watched reader on loopback without sudo. Ctrl+C stops both. Opens Chrome in app mode once the proxy is ready. --no-open disables browser launch; --no-notices hides the shortcut and copied-document notices, not errors or operation results. CHROME_PATH overrides the executable.",
+		"Usage: pnpm dev [--no-open] [--no-notices] [--recursive] [--allow-html] [file.md | directory ...]\n--allow-html renders raw HTML in trusted Markdown. Uses ports 8080 and 3100 when available; otherwise selects free ports. DEV_PORT and DEV_BACKEND_PORT override them.\nStarts Caddy and a watched reader on loopback without sudo. Ctrl+C stops both. Once the proxy is ready, opens the installed macOS Markdown Viewer app for this URL, or falls back to Chrome app mode. --no-open disables browser launch; --no-notices hides the shortcut and copied-document notices, not errors or operation results. CHROME_PATH bypasses app discovery; VIEWER_APP_PATH explicitly selects a matching macOS .app.",
 	);
 } else {
 	const children = new Set();
