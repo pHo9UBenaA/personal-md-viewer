@@ -1,14 +1,13 @@
-import {
-	documentKeysFromTree,
-	findDocuments,
-	treeFromDocuments,
-} from "./documents.js";
+import { byId, createButton } from "./dom.js";
+import { initializeNotices } from "./notices.js";
+import { initializePalette } from "./palette.js";
 import { initializeReaderSearch } from "./reader-search.js";
 import { mapSourceText, sourceRangesForSelection } from "./selection.js";
+import { createShortcutHandler } from "./shortcuts.js";
 import { initializeSidebarResize } from "./sidebar.js";
 import { initializeTabs } from "./tabs.js";
+import { initializeTree } from "./tree.js";
 
-const $ = (id) => document.getElementById(id);
 const token = document.querySelector('meta[name="viewer-token"]').content;
 const availableDocuments = new Map();
 const tabs = new Map();
@@ -28,32 +27,58 @@ let busy = false;
 let blobUrls = [];
 let highlightSelection = null;
 let highlightListeners = null;
-const expandedFolders = new Set();
-const filterCollapsedFolders = new Set();
 const readerPositions = new Map();
 let displayedView = null;
 let readerFocusRevision = null;
 const MAX_CACHED_TABS = 10;
 const MAX_PAGE_IMAGES = 100;
-const MAX_PALETTE_MATCHES = 20;
 const BULK_OPEN_CONFIRM_COUNT = 50;
-let filteredKeys = [];
 let pendingOpenKeys = null;
 const closedBatches = [];
 const MAX_CLOSED_BATCHES = 20;
 const showNotices = document.body.dataset.showNotices !== "false";
-let copyNoticeDismissed = false;
 
 const workspace = document.querySelector(".workspace");
+const { status, showCopyNotice } = initializeNotices({
+	container: byId("notices"),
+	region: byId("status-region"),
+	showNotices,
+	onClose: () => {
+		if (active) focusReaderContent();
+		else byId("palette-open").focus({ preventScroll: true });
+	},
+});
+const { open: openPalette } = initializePalette({
+	dialog: byId("palette"),
+	input: byId("command"),
+	results: byId("results"),
+	recursive: byId("palette-recursive"),
+	form: byId("palette-form"),
+	close: byId("palette-close"),
+	documents: availableDocuments,
+	activate,
+	openPath,
+	runAction: runExclusiveAction,
+});
+const treeController = initializeTree({
+	list: byId("file-list"),
+	filter: byId("filter"),
+	openMatches: byId("open-matches"),
+	matchCount: byId("filter-count"),
+	documents: availableDocuments,
+	getActive: () => active,
+	activate,
+	redraw: drawNavigation,
+});
 initializeSidebarResize({
 	workspace,
-	sidebar: $("sidebar"),
-	resizer: $("sidebar-resizer"),
+	sidebar: byId("sidebar"),
+	resizer: byId("sidebar-resizer"),
 });
 
 const tabController = initializeTabs({
-	element: $("tabs"),
-	menu: $("tab-menu"),
+	element: byId("tabs"),
+	menu: byId("tab-menu"),
 	tabs,
 	getActive: () => active,
 	activate,
@@ -64,12 +89,12 @@ const tabController = initializeTabs({
 });
 
 const readerSearch = initializeReaderSearch({
-	bar: $("find-bar"),
-	input: $("find-query"),
-	counter: $("find-count"),
-	previous: $("find-previous"),
-	next: $("find-next"),
-	close: $("find-close"),
+	bar: byId("find-bar"),
+	input: byId("find-query"),
+	counter: byId("find-count"),
+	previous: byId("find-previous"),
+	next: byId("find-next"),
+	close: byId("find-close"),
 	focusReader: focusReaderContent,
 });
 
@@ -77,15 +102,15 @@ let theme = document.documentElement.dataset.theme;
 function applyTheme(value) {
 	theme = value === "dark" ? "dark" : "light";
 	document.documentElement.dataset.theme = theme;
-	const reader = $("content").contentDocument;
+	const reader = byId("content").contentDocument;
 	if (reader?.documentElement) reader.documentElement.dataset.theme = theme;
 	const action =
 		theme === "dark" ? "ライトモードに切り替える" : "ダークモードに切り替える";
-	$("theme-toggle").setAttribute("aria-label", action);
-	$("theme-toggle").title = action;
+	byId("theme-toggle").setAttribute("aria-label", action);
+	byId("theme-toggle").title = action;
 }
 applyTheme(theme);
-$("theme-toggle").addEventListener("click", () => {
+byId("theme-toggle").addEventListener("click", () => {
 	applyTheme(theme === "dark" ? "light" : "dark");
 	try {
 		localStorage.setItem("viewer-theme", theme);
@@ -100,69 +125,6 @@ window.addEventListener("storage", (event) => {
 	)
 		applyTheme(event.newValue);
 });
-
-function createNotice(id, content, closeLabel, onDismiss) {
-	const notice = document.createElement("div");
-	notice.id = id;
-	notice.className = "notice";
-	const message = document.createElement("span");
-	message.className = "notice-message";
-	message.append(content);
-	const close = button(
-		"×",
-		() => {
-			notice.remove();
-			onDismiss?.();
-			if (active) focusReaderContent();
-			else $("palette-open").focus({ preventScroll: true });
-		},
-		"notice-close",
-	);
-	close.setAttribute("aria-label", closeLabel);
-	close.title = closeLabel;
-	notice.append(message, close);
-	return notice;
-}
-
-if (showNotices) {
-	const content = document.createDocumentFragment();
-	const link = document.createElement("a");
-	link.href = "/shortcuts";
-	link.target = "_blank";
-	link.rel = "noopener noreferrer";
-	link.textContent = "ショートカットの詳細";
-	content.append(
-		"一部のショートカットは、ブラウザーの標準操作ではなく Viewer 内の操作に使います。 ",
-		link,
-	);
-	const notice = createNotice(
-		"shortcut-notice",
-		content,
-		"ショートカットの案内を閉じる",
-	);
-	notice.classList.add("shortcut-notice");
-	$("notices").prepend(notice);
-}
-
-function status(message, error = false, onDismiss) {
-	$("status")?.remove();
-	if (!message) return;
-	const notice = createNotice("status", message, "通知を閉じる", onDismiss);
-	notice.dataset.error = String(error);
-	$("status-region").append(notice);
-}
-
-function showCopyNotice() {
-	status(
-		showNotices && !copyNoticeDismissed
-			? "コピーを閲覧中です。マーカーはコピーに保存し、元ファイルは変更しません。"
-			: "",
-		false,
-		() => {
-			copyNoticeDismissed = true;
-		},
-	);
-}
 
 async function api(route, body = {}, { asBlob = false } = {}) {
 	const response = await fetch(`/api/${route}`, {
@@ -234,103 +196,23 @@ async function openPath(path, recursive) {
 	const data = await api("open", { path, recursive });
 	if (revision !== navigationRevision) return;
 	await addDocuments(data.documents);
-	$("palette").close();
-}
-
-function button(text, click, className) {
-	const node = document.createElement("button");
-	node.type = "button";
-	node.textContent = text;
-	if (className) node.className = className;
-	node.addEventListener("click", click);
-	return node;
-}
-
-function drawTreeBranch(
-	branch,
-	parent,
-	path = [],
-	level = 1,
-	filtering = false,
-) {
-	for (const [id, child] of branch.directories) {
-		const folderPath = [...path, id];
-		const folderKey = JSON.stringify(folderPath);
-		const folderState = filtering ? filterCollapsedFolders : expandedFolders;
-		const expanded = filtering
-			? !folderState.has(folderKey)
-			: folderState.has(folderKey);
-		const folder = document.createElement("div");
-		folder.className = "tree-folder";
-		const row = document.createElement("div");
-		row.className = "tree-folder-row";
-		row.textContent = child.name;
-		folder.tabIndex = 0;
-		folder.dataset.folderKey = folderKey;
-		function toggleFolder() {
-			if (folderState.has(folderKey)) folderState.delete(folderKey);
-			else folderState.add(folderKey);
-			drawNavigation();
-			[...$("file-list").querySelectorAll(".tree-folder")]
-				.find((item) => item.dataset.folderKey === folderKey)
-				?.focus();
-		}
-		folder.addEventListener("click", (event) => {
-			if (event.target === row) toggleFolder();
-		});
-		folder.addEventListener("keydown", (event) => {
-			if (event.target !== folder) return;
-			if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)
-				return;
-			const shouldToggle =
-				event.key === "Enter" ||
-				event.key === " " ||
-				(event.key === "ArrowRight" && !expanded) ||
-				(event.key === "ArrowLeft" && expanded);
-			if (!shouldToggle) return;
-			event.preventDefault();
-			toggleFolder();
-		});
-		folder.setAttribute("role", "treeitem");
-		folder.setAttribute("aria-expanded", String(expanded));
-		folder.setAttribute("aria-level", String(level));
-		folder.setAttribute("aria-label", `${child.name} フォルダー`);
-		const group = document.createElement("div");
-		group.setAttribute("role", "group");
-		group.hidden = !expanded;
-		drawTreeBranch(child, group, folderPath, level + 1, filtering);
-		folder.append(row, group);
-		parent.append(folder);
-	}
-	for (const { key, doc, name } of branch.files) {
-		const item = button(name, () => activate(key), "tree-file");
-		item.title = doc.path ?? doc.label;
-		item.setAttribute("role", "treeitem");
-		item.setAttribute("aria-label", name);
-		item.setAttribute("aria-level", String(level));
-		item.setAttribute("aria-current", String(active === key));
-		parent.append(item);
-	}
+	byId("palette").close();
 }
 
 function drawNavigation() {
-	$("count").textContent = String(availableDocuments.size);
-	$("reopen-closed").disabled = closedBatches.length === 0;
+	byId("count").textContent = String(availableDocuments.size);
+	byId("reopen-closed").disabled = closedBatches.length === 0;
 	workspace.dataset.hasDocuments = String(availableDocuments.size > 0);
 	tabController.draw();
-	$("file-list").replaceChildren();
-	const query = $("filter").value.trim();
-	const tree = treeFromDocuments(findDocuments(availableDocuments, query));
-	filteredKeys = query ? documentKeysFromTree(tree) : [];
-	$("open-matches").disabled = filteredKeys.length === 0;
-	$("filter-count").hidden = !query;
-	$("filter-count").textContent = `${filteredKeys.length} 件`;
-	drawTreeBranch(tree, $("file-list"), [], 1, Boolean(query));
-	$("empty").hidden = tabs.size > 0;
-	$("reader").hidden = tabs.size === 0;
+	treeController.draw();
+	byId("empty").hidden = tabs.size > 0;
+	byId("reader").hidden = tabs.size === 0;
 	if (active) {
-		$("reader").setAttribute("role", "tabpanel");
-		$("reader").setAttribute("aria-labelledby", `tab-${tabs.get(active).id}`);
+		byId("reader").setAttribute("role", "tabpanel");
+		byId("reader").setAttribute(
+			"aria-labelledby",
+			`tab-${tabs.get(active).id}`,
+		);
 		document
 			.querySelector('[aria-selected="true"]')
 			?.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -357,22 +239,23 @@ function openMatchingTabs(keys) {
 }
 
 function openFilteredDocuments() {
-	if (!filteredKeys.length || $("open-matches-confirm").open) return;
+	const filteredKeys = treeController.matchingKeys();
+	if (!filteredKeys.length || byId("open-matches-confirm").open) return;
 	const additions = filteredKeys.filter((key) => !tabs.has(key));
 	if (additions.length < BULK_OPEN_CONFIRM_COUNT) {
 		openMatchingTabs(additions);
 		return;
 	}
 	pendingOpenKeys = additions;
-	$("open-matches-message").textContent =
+	byId("open-matches-message").textContent =
 		`${additions.length} 件のタブを追加します。本文は、そのタブを表示したときに読み込みます。`;
-	$("open-matches-confirm").showModal();
-	$("open-matches-cancel").focus();
+	byId("open-matches-confirm").showModal();
+	byId("open-matches-cancel").focus();
 }
 
 function hideHighlightToolbar() {
 	highlightSelection = null;
-	$("highlight-toolbar").hidden = true;
+	byId("highlight-toolbar").hidden = true;
 }
 
 function rememberReaderPosition() {
@@ -388,30 +271,30 @@ function rememberReaderPosition() {
 
 function focusReaderContent() {
 	if (!active) return;
-	if (!displayedView || displayedView.frame !== $("content")) {
+	if (!displayedView || displayedView.frame !== byId("content")) {
 		readerFocusRevision = renderRevision;
 		return;
 	}
 	readerFocusRevision = null;
 	document.getSelection()?.removeAllRanges();
-	$("content").contentWindow.focus();
-	$("content").contentDocument.body.focus({ preventScroll: true });
+	byId("content").contentWindow.focus();
+	byId("content").contentDocument.body.focus({ preventScroll: true });
 }
 
 function setSidebarVisible(visible) {
 	document.body.classList.toggle("sidebar-hidden", !visible);
-	$("sidebar-toggle").setAttribute("aria-expanded", String(visible));
-	$("sidebar-toggle").setAttribute(
+	byId("sidebar-toggle").setAttribute("aria-expanded", String(visible));
+	byId("sidebar-toggle").setAttribute(
 		"aria-label",
 		visible ? "サイドバーを隠す" : "サイドバーを表示する",
 	);
 	if (
 		!visible &&
-		($("sidebar").contains(document.activeElement) ||
-			document.activeElement === $("sidebar-resizer"))
+		(byId("sidebar").contains(document.activeElement) ||
+			document.activeElement === byId("sidebar-resizer"))
 	) {
 		if (active) focusReaderContent();
-		else $("palette-open").focus();
+		else byId("palette-open").focus();
 	}
 }
 
@@ -424,7 +307,7 @@ function toggleSidebar() {
 
 function toggleSource({ focusReader = false } = {}) {
 	showSource = !showSource;
-	$("source-toggle").textContent = showSource ? "Preview" : "Raw";
+	byId("source-toggle").textContent = showSource ? "Preview" : "Raw";
 	if (active)
 		void activate(active, { preserveTabSelection: true, focusReader });
 }
@@ -434,8 +317,8 @@ function focusTreeFilter() {
 	setSidebarVisible(true);
 	tabController.closeMenu();
 	setFocusMode(false);
-	$("filter").focus();
-	$("filter").select();
+	byId("filter").focus();
+	byId("filter").select();
 }
 
 function cycleTab(direction) {
@@ -459,7 +342,7 @@ function clearReader() {
 	hideHighlightToolbar();
 	for (const url of blobUrls) URL.revokeObjectURL(url);
 	blobUrls = [];
-	$("outline").replaceChildren();
+	byId("outline").replaceChildren();
 	const frame = document.createElement("iframe");
 	frame.id = "content";
 	frame.title = "Markdown 本文";
@@ -467,13 +350,13 @@ function clearReader() {
 		"sandbox",
 		"allow-same-origin allow-popups allow-popups-to-escape-sandbox",
 	);
-	$("content").replaceWith(frame);
+	byId("content").replaceWith(frame);
 }
 
 function watchHighlightSelection(frameDocument, doc, revision) {
 	const mapping = mapSourceText(frameDocument, doc.source);
 	const frame = frameDocument.defaultView.frameElement;
-	const toolbar = $("highlight-toolbar");
+	const toolbar = byId("highlight-toolbar");
 	const controller = new AbortController();
 	highlightListeners = controller;
 	const position = () => {
@@ -524,8 +407,8 @@ function watchHighlightSelection(frameDocument, doc, revision) {
 			return;
 		}
 		highlightSelection = { key: keyFor(doc), revision, ...selected };
-		$("highlight-toolbar").hidden = false;
-		for (const button of $("highlight-toolbar").querySelectorAll(
+		byId("highlight-toolbar").hidden = false;
+		for (const button of byId("highlight-toolbar").querySelectorAll(
 			"[data-highlight-color]",
 		)) {
 			button.setAttribute(
@@ -533,7 +416,7 @@ function watchHighlightSelection(frameDocument, doc, revision) {
 				String(button.dataset.highlightColor === selected.marker?.color),
 			);
 		}
-		$("highlight-remove").disabled = !selected.marker;
+		byId("highlight-remove").disabled = !selected.marker;
 		position();
 	};
 	frameDocument.defaultView.addEventListener("scroll", position, {
@@ -584,7 +467,7 @@ async function applyHighlight(color) {
 	const doc = selected && tabs.get(selected.key);
 	if (!doc || selected.revision !== renderRevision || selected.key !== active)
 		throw new Error("文章を選択し直してください。");
-	const scrollTop = $("content").contentWindow?.scrollY ?? 0;
+	const scrollTop = byId("content").contentWindow?.scrollY ?? 0;
 	let mode = "add";
 	if (selected.marker) mode = color ? "recolor" : "remove";
 	if (!color && !selected.marker)
@@ -618,7 +501,7 @@ function closeTabs(closingKeys) {
 	const keys = [...tabs.keys()];
 	const closing = new Set(closingKeys.filter((key) => tabs.has(key)));
 	if (!closing.size) return;
-	const focusWasInTabs = $("tabs").contains(document.activeElement);
+	const focusWasInTabs = byId("tabs").contains(document.activeElement);
 	const index = keys.indexOf(active);
 	const closedDocuments = [];
 	for (const [index, key] of keys.entries()) {
@@ -637,7 +520,7 @@ function closeTabs(closingKeys) {
 	}
 	if (!tabs.size) {
 		showEmpty("タブを閉じました。ファイル一覧から開き直せます。");
-		if (focusWasInTabs) $("filter").focus();
+		if (focusWasInTabs) byId("filter").focus();
 		return;
 	}
 	if (closing.has(active)) {
@@ -681,7 +564,7 @@ async function reopenClosedTabs() {
 	}
 	const batchIndex = closedBatches.indexOf(batch);
 	if (batchIndex >= 0) closedBatches.splice(batchIndex, 1);
-	$("reopen-closed").disabled = closedBatches.length === 0;
+	byId("reopen-closed").disabled = closedBatches.length === 0;
 	if (!restored.length) {
 		status(
 			failure
@@ -727,7 +610,8 @@ async function reloadTab(key = active) {
 	doc.loaded = false;
 	await activate(key, {
 		preserveTabSelection: key === active,
-		scrollTop: key === active ? ($("content").contentWindow?.scrollY ?? 0) : 0,
+		scrollTop:
+			key === active ? (byId("content").contentWindow?.scrollY ?? 0) : 0,
 	});
 }
 
@@ -746,7 +630,7 @@ function showEmpty(message, { record = true } = {}) {
 
 async function restoreView(state) {
 	const revision = ++navigationRevision;
-	if ($("palette").open) $("palette").close();
+	if (byId("palette").open) byId("palette").close();
 	tabs.clear();
 	readerPositions.clear();
 	showEmpty("履歴から復元しています…", { record: false });
@@ -824,10 +708,10 @@ function buildOutline(frameDocument) {
 		while (usedHeadingIds.has(slug)) slug = `${base}-${++suffix}`;
 		usedHeadingIds.add(slug);
 		heading.id = slug;
-		const item = button(heading.textContent, () =>
+		const item = createButton(heading.textContent, () =>
 			heading.scrollIntoView({ behavior: "smooth" }),
 		);
-		$("outline").append(item);
+		byId("outline").append(item);
 	}
 }
 
@@ -977,16 +861,16 @@ async function activate(
 		showSource ? "raw" : "preview"
 	] ?? { x: 0, y: 0 };
 	drawNavigation();
-	$("document-path").textContent = doc.path;
-	$("document-path").title = doc.path;
-	$("reload").title = "コピーから読み直す";
+	byId("document-path").textContent = doc.path;
+	byId("document-path").title = doc.path;
+	byId("reload").title = "コピーから読み直す";
 	document.title = `${doc.name} — Markdown Viewer`;
 	status("読み込み中…");
 	try {
 		await loadDocumentContent(doc);
 		if (revision !== renderRevision) return;
 		evictOldTabContent(doc);
-		$("content").replaceWith(
+		byId("content").replaceWith(
 			createReaderFrame(doc, revision, {
 				hash,
 				scrollTop: scrollTop ?? position.y,
@@ -999,264 +883,92 @@ async function activate(
 	}
 }
 
-let paletteIndex = 0;
-let paletteMatches = [];
-
-function updatePalette() {
-	const query = $("command").value.trim();
-	paletteMatches = query
-		? findDocuments(availableDocuments, query, MAX_PALETTE_MATCHES)
-		: [];
-	paletteIndex = Math.min(paletteIndex, Math.max(0, paletteMatches.length - 1));
-	$("results").replaceChildren(
-		...paletteMatches.map(([key, doc], index) => {
-			const node = button(doc.path ?? doc.label, () => {
-				$("palette").close();
-				activate(key);
-			});
-			node.dataset.selected = String(index === paletteIndex);
-			return node;
-		}),
-	);
-}
-
-function openPalette() {
-	if (!$("palette").open) $("palette").showModal();
-	$("command").value = "";
-	paletteIndex = 0;
-	updatePalette();
-	$("command").focus();
-}
 function setFocusMode(enabled) {
 	if (enabled && !active) return;
 	document.body.classList.toggle("focus-mode", enabled);
-	$("focus-toggle").setAttribute("aria-pressed", String(enabled));
-	$("focus-toggle").textContent = enabled ? "通常表示" : "全画面表示";
-	$("focus-toggle").title = enabled
+	byId("focus-toggle").setAttribute("aria-pressed", String(enabled));
+	byId("focus-toggle").textContent = enabled ? "通常表示" : "全画面表示";
+	byId("focus-toggle").title = enabled
 		? "通常表示に戻す (Esc / ⌘⇧F / Ctrl+Shift+F)"
 		: "全画面表示 (⌘⇧F / Ctrl+Shift+F)";
 }
-function shortcuts(event) {
-	if (event.defaultPrevented || event.isComposing || event.keyCode === 229)
-		return;
-	const key = event.key.toLowerCase();
-	const dialogOpen = Boolean(document.querySelector("dialog[open]"));
-	const editable =
-		event.target.isContentEditable ||
-		event.target.closest?.("input, textarea, select");
-	const isCommand = (event.metaKey || event.ctrlKey) && !event.altKey;
-	if (isCommand && !event.shiftKey && key === "p") {
-		event.preventDefault();
-		if (!dialogOpen) openPalette();
-		return;
-	}
-	if (isCommand && !event.shiftKey && key === "b" && !editable) {
-		event.preventDefault();
-		if (!dialogOpen && !event.repeat) toggleSidebar();
-		return;
-	}
-	if (isCommand && event.shiftKey && key === "t") {
-		event.preventDefault();
-		if (!dialogOpen && !event.repeat) void runExclusiveAction(reopenClosedTabs);
-		return;
-	}
-	if (isCommand && event.shiftKey && key === "v" && !editable) {
-		event.preventDefault();
-		if (!dialogOpen && active && !event.repeat)
-			toggleSource({ focusReader: true });
-		return;
-	}
-	if (isCommand && !event.shiftKey && key === "f") {
-		event.preventDefault();
-		if (!dialogOpen && active) readerSearch.open();
-		return;
-	}
-	if (isCommand && key === "g") {
-		event.preventDefault();
-		if (!dialogOpen && active) readerSearch.step(event.shiftKey ? -1 : 1);
-		return;
-	}
-	const controlOnly = event.ctrlKey && !event.metaKey && !event.altKey;
-	if (controlOnly && key === "tab") {
-		event.preventDefault();
-		if (!dialogOpen) cycleTab(event.shiftKey ? -1 : 1);
-		return;
-	}
-	// JIS has an @ key; US layouts use Shift+2. Do not bind Ctrl+[ on US layouts.
-	if (
-		controlOnly &&
-		(key === "@" || (event.code === "Digit2" && event.shiftKey))
-	) {
-		event.preventDefault();
-		if (!dialogOpen && !event.repeat) {
-			if (document.activeElement === $("filter") && active)
-				focusReaderContent();
-			else focusTreeFilter();
-		}
-		return;
-	}
-	if (isCommand && !event.shiftKey && (key === "w" || event.code === "KeyW")) {
-		event.preventDefault();
-		if (!event.repeat && !dialogOpen) closeTabs(tabController.selectedKeys());
-		return;
-	}
-	if (isCommand && !event.shiftKey && (key === "r" || event.code === "KeyR")) {
-		event.preventDefault();
-		if (!event.repeat && !dialogOpen)
-			void runExclusiveAction(() => reloadTab());
-		return;
-	}
-	if (
-		key === "/" &&
-		!event.metaKey &&
-		!event.ctrlKey &&
-		!event.altKey &&
-		!editable &&
-		!dialogOpen
-	) {
-		event.preventDefault();
-		focusTreeFilter();
-		return;
-	}
-	const isCommandShift =
-		(event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey;
-	if (isCommandShift && key === "f") {
-		event.preventDefault();
-		if (!active || dialogOpen) return;
+const shortcuts = createShortcutHandler({
+	hasActive: () => Boolean(active),
+	isPaletteOpen: () => byId("palette").open,
+	isDialogOpen: () => Boolean(document.querySelector("dialog[open]")),
+	openPalette,
+	toggleSidebar,
+	toggleSource,
+	cycleTab,
+	focusTreeFilter,
+	reopenClosedTabs: () => {
+		void runExclusiveAction(reopenClosedTabs);
+	},
+	reloadTab: () => {
+		void runExclusiveAction(() => reloadTab());
+	},
+	closeSelectedTabs: () => closeTabs(tabController.selectedKeys()),
+	openSearch: readerSearch.open,
+	stepSearch: readerSearch.step,
+	toggleTreeFocus: () => {
+		if (document.activeElement === byId("filter") && active)
+			focusReaderContent();
+		else focusTreeFilter();
+	},
+	toggleFocusMode: () => {
 		tabController.closeMenu();
 		setFocusMode(!document.body.classList.contains("focus-mode"));
-		return;
-	}
-	if (event.key === "Escape" && !dialogOpen) {
-		if (!$("highlight-toolbar").hidden) {
-			$("content").contentWindow?.getSelection()?.removeAllRanges();
+	},
+	dismiss: () => {
+		if (!byId("highlight-toolbar").hidden) {
+			byId("content").contentWindow?.getSelection()?.removeAllRanges();
 			hideHighlightToolbar();
 			return;
 		}
 		if (readerSearch.isOpen()) readerSearch.dismiss();
 		else setFocusMode(false);
-		return;
-	}
-	if (isCommandShift && key === "p") {
-		event.preventDefault();
-		if (!dialogOpen || $("palette").open) openPalette();
-	}
-}
+	},
+});
 document.addEventListener("keydown", shortcuts);
-$("palette-open").addEventListener("click", openPalette);
-$("sidebar-toggle").addEventListener("click", toggleSidebar);
-$("reopen-closed").addEventListener("click", () =>
+byId("palette-open").addEventListener("click", openPalette);
+byId("sidebar-toggle").addEventListener("click", toggleSidebar);
+byId("reopen-closed").addEventListener("click", () =>
 	runExclusiveAction(reopenClosedTabs),
 );
-$("focus-toggle").addEventListener("click", () => {
+byId("focus-toggle").addEventListener("click", () => {
 	setFocusMode(!document.body.classList.contains("focus-mode"));
 });
-$("palette-close").addEventListener("click", () => $("palette").close());
-$("command").addEventListener("input", () => {
-	paletteIndex = 0;
-	updatePalette();
-});
-$("command").addEventListener("keydown", (event) => {
-	if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-		event.preventDefault();
-		paletteIndex = Math.max(
-			0,
-			Math.min(
-				paletteMatches.length - 1,
-				paletteIndex + (event.key === "ArrowDown" ? 1 : -1),
-			),
-		);
-		updatePalette();
-	}
-});
-$("palette-form").addEventListener("submit", (event) => {
-	event.preventDefault();
-	const value = $("command").value.trim();
-	if (!value) return;
-	if (paletteMatches.length && !/^(?:\/|~|\.|[a-z]:[\\/])/i.test(value)) {
-		$("palette").close();
-		activate(paletteMatches[paletteIndex][0]);
-	} else
-		runExclusiveAction(() => openPath(value, $("palette-recursive").checked));
-});
-$("open-matches").addEventListener("click", openFilteredDocuments);
-$("open-matches-cancel").addEventListener("click", () =>
-	$("open-matches-confirm").close(),
+
+byId("open-matches").addEventListener("click", openFilteredDocuments);
+byId("open-matches-cancel").addEventListener("click", () =>
+	byId("open-matches-confirm").close(),
 );
-$("open-matches-accept").addEventListener("click", () => {
+byId("open-matches-accept").addEventListener("click", () => {
 	const keys = pendingOpenKeys ?? [];
 	pendingOpenKeys = null;
-	$("open-matches-confirm").close();
+	byId("open-matches-confirm").close();
 	openMatchingTabs(keys);
 });
-$("open-matches-confirm").addEventListener("close", () => {
+byId("open-matches-confirm").addEventListener("close", () => {
 	pendingOpenKeys = null;
 });
-$("filter").addEventListener("input", () => {
-	filterCollapsedFolders.clear();
-	drawNavigation();
-});
-$("file-list").addEventListener("keydown", (event) => {
-	if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
-	if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
-	const items = [
-		...$("file-list").querySelectorAll('[role="treeitem"]'),
-	].filter((item) => !item.closest("[hidden]"));
-	if (!items.length) return;
-	event.preventDefault();
-	const index = items.indexOf(document.activeElement);
-	let next;
-	if (event.key === "Home") next = 0;
-	else if (event.key === "End") next = items.length - 1;
-	else {
-		const direction = event.key === "ArrowDown" ? 1 : -1;
-		next = Math.max(0, Math.min(items.length - 1, index + direction));
-	}
-	items[next].focus();
-});
-document.addEventListener("keydown", (event) => {
-	if (
-		!event.metaKey ||
-		event.ctrlKey ||
-		event.altKey ||
-		event.shiftKey ||
-		event.key !== "ArrowLeft"
-	)
-		return;
-	const tree = $("file-list");
-	if (!tree.matches(":hover") && !tree.contains(document.activeElement)) return;
-	event.preventDefault();
-	const folders = [...tree.querySelectorAll(".tree-folder")];
-	if (!folders.length) return;
-	if ($("filter").value.trim()) {
-		for (const folder of folders)
-			filterCollapsedFolders.add(folder.dataset.folderKey);
-	} else expandedFolders.clear();
-	const focusKey = [...tree.children].find((folder) =>
-		folder.contains(document.activeElement),
-	)?.dataset.folderKey;
-	drawNavigation();
-	if (focusKey)
-		[...tree.querySelectorAll(".tree-folder")]
-			.find((folder) => folder.dataset.folderKey === focusKey)
-			?.focus();
-});
-$("close-all").addEventListener("click", () => closeTabs([...tabs.keys()]));
-$("reload").addEventListener("click", () =>
+
+byId("close-all").addEventListener("click", () => closeTabs([...tabs.keys()]));
+byId("reload").addEventListener("click", () =>
 	runExclusiveAction(() => reloadTab()),
 );
-$("source-toggle").addEventListener("click", () => toggleSource());
+byId("source-toggle").addEventListener("click", () => toggleSource());
 document.addEventListener("focusin", (event) => {
-	if (event.target !== $("content")) readerFocusRevision = null;
+	if (event.target !== byId("content")) readerFocusRevision = null;
 });
 document.addEventListener("pointerdown", (event) => {
 	readerFocusRevision = null;
-	if (!$("highlight-toolbar").contains(event.target)) {
-		$("content").contentWindow?.getSelection()?.removeAllRanges();
+	if (!byId("highlight-toolbar").contains(event.target)) {
+		byId("content").contentWindow?.getSelection()?.removeAllRanges();
 		hideHighlightToolbar();
 	}
 });
-$("highlight-toolbar").addEventListener("click", (event) => {
+byId("highlight-toolbar").addEventListener("click", (event) => {
 	if (event.target.closest("#highlight-remove")) {
 		runExclusiveAction(() => applyHighlight(null));
 		return;

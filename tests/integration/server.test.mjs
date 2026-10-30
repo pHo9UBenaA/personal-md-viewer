@@ -209,6 +209,11 @@ test("browser modules are served only at their registered asset routes", async (
 		"sidebar.js",
 		"tabs.js",
 		"reader-search.js",
+		"dom.js",
+		"notices.js",
+		"palette.js",
+		"tree.js",
+		"shortcuts.js",
 	]) {
 		const response = await fetch(`${base}/${file}`);
 		assert.equal(response.status, 200, file);
@@ -218,6 +223,12 @@ test("browser modules are served only at their registered asset routes", async (
 			file,
 		);
 		assert.equal((await fetch(`${base}/public/${file}`)).status, 404, file);
+		assert.equal((await fetch(`${base}/scripts/${file}`)).status, 404, file);
+		assert.equal(
+			(await fetch(`${base}/public/scripts/${file}`)).status,
+			404,
+			file,
+		);
 	}
 });
 test("shortcut help is served without API tokens or the Viewer event handlers", async () => {

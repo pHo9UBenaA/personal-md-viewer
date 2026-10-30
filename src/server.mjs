@@ -14,6 +14,11 @@ const assets = new Map([
 	["/icons/viewer-192.png", ["icons/viewer-192.png", "image/png"]],
 	["/icons/viewer-512.png", ["icons/viewer-512.png", "image/png"]],
 	["/app.js", ["scripts/app.js", "text/javascript; charset=utf-8"]],
+	["/dom.js", ["scripts/dom.js", "text/javascript; charset=utf-8"]],
+	["/notices.js", ["scripts/notices.js", "text/javascript; charset=utf-8"]],
+	["/palette.js", ["scripts/palette.js", "text/javascript; charset=utf-8"]],
+	["/tree.js", ["scripts/tree.js", "text/javascript; charset=utf-8"]],
+	["/shortcuts.js", ["scripts/shortcuts.js", "text/javascript; charset=utf-8"]],
 	["/tabs.js", ["scripts/tabs.js", "text/javascript; charset=utf-8"]],
 	[
 		"/reader-search.js",
