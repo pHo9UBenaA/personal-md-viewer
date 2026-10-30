@@ -204,12 +204,16 @@ test("asset routes never expose arbitrary local files", async () => {
 });
 test("browser modules are served only at their registered asset routes", async () => {
 	for (const file of [
+		"app.js",
+		"theme.js",
 		"documents.js",
 		"selection.js",
 		"sidebar.js",
 		"tabs.js",
 		"reader-search.js",
 		"dom.js",
+		"reader.js",
+		"highlight-toolbar.js",
 		"notices.js",
 		"palette.js",
 		"tree.js",

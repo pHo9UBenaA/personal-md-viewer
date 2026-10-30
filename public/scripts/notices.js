@@ -14,6 +14,7 @@ export function initializeNotices({ container, region, showNotices, onClose }) {
 			"×",
 			() => {
 				notice.remove();
+				if (currentStatus === notice) currentStatus = null;
 				onDismiss?.();
 				onClose();
 			},
@@ -47,6 +48,7 @@ export function initializeNotices({ container, region, showNotices, onClose }) {
 
 	function status(message, error = false, onDismiss) {
 		currentStatus?.remove();
+		currentStatus = null;
 		if (!message) return;
 		const notice = createNotice("status", message, "通知を閉じる", onDismiss);
 		notice.dataset.error = String(error);

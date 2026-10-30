@@ -1,8 +1,9 @@
-import { byId, createButton } from "./dom.js";
+import { byId } from "./dom.js";
+import { initializeHighlightToolbar } from "./highlight-toolbar.js";
 import { initializeNotices } from "./notices.js";
 import { initializePalette } from "./palette.js";
+import { initializeReader } from "./reader.js";
 import { initializeReaderSearch } from "./reader-search.js";
-import { mapSourceText, sourceRangesForSelection } from "./selection.js";
 import { createShortcutHandler } from "./shortcuts.js";
 import { initializeSidebarResize } from "./sidebar.js";
 import { initializeTabs } from "./tabs.js";
@@ -24,14 +25,8 @@ let renderRevision = 0;
 let navigationRevision = 0;
 let showSource = false;
 let busy = false;
-let blobUrls = [];
-let highlightSelection = null;
-let highlightListeners = null;
 const readerPositions = new Map();
-let displayedView = null;
-let readerFocusRevision = null;
 const MAX_CACHED_TABS = 10;
-const MAX_PAGE_IMAGES = 100;
 const BULK_OPEN_CONFIRM_COUNT = 50;
 let pendingOpenKeys = null;
 const closedBatches = [];
@@ -98,12 +93,34 @@ const readerSearch = initializeReaderSearch({
 	focusReader: focusReaderContent,
 });
 
+const highlightToolbar = initializeHighlightToolbar({
+	toolbar: byId("highlight-toolbar"),
+	remove: byId("highlight-remove"),
+	getFrame: () => byId("content"),
+	isCurrent: (revision) => revision === renderRevision,
+	isSourceMode: () => showSource,
+	onApply: (color) => runExclusiveAction(() => applyHighlight(color)),
+});
+const reader = initializeReader({
+	container: byId("reader"),
+	outline: byId("outline"),
+	search: readerSearch,
+	highlights: highlightToolbar,
+	getTheme: () => theme,
+	isCurrent: (revision) => revision === renderRevision,
+	onPosition: rememberReaderPosition,
+	onKeyDown: (event) => shortcuts(event),
+	onPointerDown: () => tabController.closeMenu(),
+	preventFileDrop,
+	onFollowLink: (doc, href) => runExclusiveAction(() => followLink(doc, href)),
+	readImage: (id, href) => api("image", { id, href }, { asBlob: true }),
+	status,
+});
 let theme = document.documentElement.dataset.theme;
 function applyTheme(value) {
 	theme = value === "dark" ? "dark" : "light";
 	document.documentElement.dataset.theme = theme;
-	const reader = byId("content").contentDocument;
-	if (reader?.documentElement) reader.documentElement.dataset.theme = theme;
+	reader.setTheme(theme);
 	const action =
 		theme === "dark" ? "ライトモードに切り替える" : "ダークモードに切り替える";
 	byId("theme-toggle").setAttribute("aria-label", action);
@@ -253,32 +270,15 @@ function openFilteredDocuments() {
 	byId("open-matches-cancel").focus();
 }
 
-function hideHighlightToolbar() {
-	highlightSelection = null;
-	byId("highlight-toolbar").hidden = true;
-}
-
-function rememberReaderPosition() {
-	if (!displayedView || !tabs.has(displayedView.key)) return;
-	const { key, mode, frame } = displayedView;
+function rememberReaderPosition({ key, mode, x, y }) {
+	if (!tabs.has(key)) return;
 	const positions = readerPositions.get(key) ?? {};
-	positions[mode] = {
-		x: frame.contentWindow.scrollX,
-		y: frame.contentWindow.scrollY,
-	};
+	positions[mode] = { x, y };
 	readerPositions.set(key, positions);
 }
 
 function focusReaderContent() {
-	if (!active) return;
-	if (!displayedView || displayedView.frame !== byId("content")) {
-		readerFocusRevision = renderRevision;
-		return;
-	}
-	readerFocusRevision = null;
-	document.getSelection()?.removeAllRanges();
-	byId("content").contentWindow.focus();
-	byId("content").contentDocument.body.focus({ preventScroll: true });
+	if (active) reader.focus(renderRevision);
 }
 
 function setSidebarVisible(visible) {
@@ -313,7 +313,7 @@ function toggleSource({ focusReader = false } = {}) {
 }
 
 function focusTreeFilter() {
-	readerFocusRevision = null;
+	reader.cancelFocus();
 	setSidebarVisible(true);
 	tabController.closeMenu();
 	setFocusMode(false);
@@ -332,142 +332,12 @@ function cycleTab(direction) {
 	} else void activate(keys[index], { focusReader: true });
 }
 
-function clearReader() {
-	readerSearch.clearDocument();
-	rememberReaderPosition();
-	displayedView = null;
-	readerFocusRevision = null;
-	highlightListeners?.abort();
-	highlightListeners = null;
-	hideHighlightToolbar();
-	for (const url of blobUrls) URL.revokeObjectURL(url);
-	blobUrls = [];
-	byId("outline").replaceChildren();
-	const frame = document.createElement("iframe");
-	frame.id = "content";
-	frame.title = "Markdown 本文";
-	frame.setAttribute(
-		"sandbox",
-		"allow-same-origin allow-popups allow-popups-to-escape-sandbox",
-	);
-	byId("content").replaceWith(frame);
-}
-
-function watchHighlightSelection(frameDocument, doc, revision) {
-	const mapping = mapSourceText(frameDocument, doc.source);
-	const frame = frameDocument.defaultView.frameElement;
-	const toolbar = byId("highlight-toolbar");
-	const controller = new AbortController();
-	highlightListeners = controller;
-	const position = () => {
-		if (toolbar.hidden || revision !== renderRevision) return;
-		const selection = frameDocument.getSelection();
-		if (!selection?.rangeCount || selection.isCollapsed) return;
-		const frameRect = frame.getBoundingClientRect();
-		const rects = [...selection.getRangeAt(0).getClientRects()].filter(
-			(rect) => rect.width && rect.height,
-		);
-		const rect = rects.at(-1);
-		if (!rect || frameRect.bottom < 0 || frameRect.top > innerHeight) return;
-		const x = frameRect.left + rect.left + rect.width / 2;
-		const top = frameRect.top + rect.top;
-		const bottom = frameRect.top + rect.bottom;
-		const width = toolbar.offsetWidth;
-		const height = toolbar.offsetHeight;
-		const viewportMarginPx = 8;
-		const selectionGapPx = 10;
-		const centeredLeft = x - width / 2;
-		const maxLeft = innerWidth - width - viewportMarginPx;
-		const aboveSelection = top - height - selectionGapPx;
-		const belowSelection = Math.min(
-			innerHeight - height - viewportMarginPx,
-			bottom + selectionGapPx,
-		);
-		toolbar.style.left = `${Math.max(viewportMarginPx, Math.min(maxLeft, centeredLeft))}px`;
-		toolbar.style.top = `${aboveSelection >= viewportMarginPx ? aboveSelection : belowSelection}px`;
-		toolbar.style.visibility =
-			bottom < Math.max(0, frameRect.top) ||
-			top > Math.min(innerHeight, frameRect.bottom)
-				? "hidden"
-				: "visible";
-	};
-	const update = () => {
-		if (revision !== renderRevision || showSource) return;
-		if (!document.getSelection()?.isCollapsed) {
-			hideHighlightToolbar();
-			return;
-		}
-		const selected = sourceRangesForSelection(
-			frameDocument.getSelection(),
-			mapping,
-			doc.source,
-		);
-		if (!selected) {
-			hideHighlightToolbar();
-			return;
-		}
-		highlightSelection = { key: keyFor(doc), revision, ...selected };
-		byId("highlight-toolbar").hidden = false;
-		for (const button of byId("highlight-toolbar").querySelectorAll(
-			"[data-highlight-color]",
-		)) {
-			button.setAttribute(
-				"aria-pressed",
-				String(button.dataset.highlightColor === selected.marker?.color),
-			);
-		}
-		byId("highlight-remove").disabled = !selected.marker;
-		position();
-	};
-	frameDocument.defaultView.addEventListener("scroll", position, {
-		passive: true,
-		signal: controller.signal,
-	});
-	window.addEventListener("resize", position, { signal: controller.signal });
-	const clearSelection = () => {
-		frameDocument.getSelection()?.removeAllRanges();
-		hideHighlightToolbar();
-	};
-	document.addEventListener(
-		"selectionchange",
-		() => {
-			if (!document.getSelection()?.isCollapsed) clearSelection();
-		},
-		{ signal: controller.signal },
-	);
-	document.addEventListener(
-		"focusin",
-		(event) => {
-			if (!toolbar.contains(event.target) && event.target !== frame)
-				clearSelection();
-		},
-		{ signal: controller.signal },
-	);
-	frameDocument.addEventListener("pointerdown", () =>
-		document.getSelection()?.removeAllRanges(),
-	);
-	frameDocument.addEventListener("selectionchange", update);
-	frameDocument.addEventListener("mouseup", update);
-	frameDocument.addEventListener("keyup", update);
-	frameDocument.addEventListener("click", (event) => {
-		const mark = event.target.closest?.("mark[data-mdv-color]");
-		const selection = frameDocument.getSelection();
-		if (!mark || mark.closest("a") || !selection?.isCollapsed) return;
-		const range = frameDocument.createRange();
-		range.selectNodeContents(mark);
-		selection.removeAllRanges();
-		selection.addRange(range);
-		update();
-	});
-	update();
-}
-
 async function applyHighlight(color) {
-	const selected = highlightSelection;
+	const selected = highlightToolbar.selection();
 	const doc = selected && tabs.get(selected.key);
 	if (!doc || selected.revision !== renderRevision || selected.key !== active)
 		throw new Error("文章を選択し直してください。");
-	const scrollTop = byId("content").contentWindow?.scrollY ?? 0;
+	const scrollTop = reader.scrollTop();
 	let mode = "add";
 	if (selected.marker) mode = color ? "recolor" : "remove";
 	if (!color && !selected.marker)
@@ -487,7 +357,7 @@ async function applyHighlight(color) {
 	Object.assign(doc, updated, { loaded: true });
 	// Saving may finish after navigation; update the saved document, not the new reader.
 	if (selected.revision !== renderRevision || selected.key !== active) return;
-	hideHighlightToolbar();
+	highlightToolbar.hide();
 	await activate(selected.key, { scrollTop, preserveTabSelection: true });
 	const messagesByMode = {
 		add: "マーカーを保存しました。",
@@ -610,8 +480,7 @@ async function reloadTab(key = active) {
 	doc.loaded = false;
 	await activate(key, {
 		preserveTabSelection: key === active,
-		scrollTop:
-			key === active ? (byId("content").contentWindow?.scrollY ?? 0) : 0,
+		scrollTop: key === active ? reader.scrollTop() : 0,
 	});
 }
 
@@ -621,7 +490,7 @@ function showEmpty(message, { record = true } = {}) {
 	tabController.selectOnly(null);
 	renderRevision++;
 	setFocusMode(false);
-	clearReader();
+	reader.clear();
 	drawNavigation();
 	document.title = "Markdown Viewer";
 	status(message);
@@ -686,78 +555,6 @@ async function followLink(doc, href) {
 		await activate(keyFor(data.documents[0]), { hash: href.split("#")[1] });
 }
 
-function jumpTo(frameDocument, hash) {
-	try {
-		frameDocument.getElementById(decodeURIComponent(hash))?.scrollIntoView();
-	} catch {
-		status("見出しリンクの形式が不正です。", true);
-	}
-}
-
-function buildOutline(frameDocument) {
-	const usedHeadingIds = new Set();
-	for (const heading of frameDocument.querySelectorAll("h1,h2,h3,h4,h5,h6")) {
-		const base =
-			heading.textContent
-				.toLocaleLowerCase()
-				.trim()
-				.replace(/[^\p{L}\p{N}\p{M}\s_-]/gu, "")
-				.replace(/\s/g, "-") || "section";
-		let slug = base;
-		let suffix = 0;
-		while (usedHeadingIds.has(slug)) slug = `${base}-${++suffix}`;
-		usedHeadingIds.add(slug);
-		heading.id = slug;
-		const item = createButton(heading.textContent, () =>
-			heading.scrollIntoView({ behavior: "smooth" }),
-		);
-		byId("outline").append(item);
-	}
-}
-
-function enableReaderLinks(frameDocument, doc) {
-	for (const link of frameDocument.querySelectorAll("a[data-link]")) {
-		const href = link.dataset.link;
-		if (/^https?:\/\//i.test(href) || /^mailto:/i.test(href)) {
-			link.href = href;
-			link.target = "_blank";
-			link.rel = "noopener noreferrer";
-		} else {
-			link.href = "#";
-			link.addEventListener("click", (event) => {
-				event.preventDefault();
-				if (href.startsWith("#")) jumpTo(frameDocument, href.slice(1));
-				else runExclusiveAction(() => followLink(doc, href));
-			});
-		}
-	}
-}
-
-// Sequential, bounded image loading avoids a burst of hundreds of requests.
-async function loadReaderImages(frameDocument, doc, revision) {
-	let imageCount = 0;
-	for (const img of frameDocument.querySelectorAll("img[data-image]")) {
-		if (revision !== renderRevision) return;
-		const href = img.dataset.image;
-		try {
-			if (++imageCount > MAX_PAGE_IMAGES)
-				throw new Error("画像は 1 ページ 100 件までです。");
-			if (/^(?:[a-z][a-z\d+.-]*:|\/|\\)/i.test(href))
-				throw new Error("外部画像・絶対パス画像は読み込みません。");
-			const blob = await api("image", { id: doc.id, href }, { asBlob: true });
-			if (revision !== renderRevision) return;
-			const url = URL.createObjectURL(blob);
-			blobUrls.push(url);
-			img.src = url;
-		} catch (error) {
-			const note = frameDocument.createElement("span");
-			note.className = "image-note";
-			note.textContent = `[${img.alt || "画像"}: ${error.message}]`;
-			img.replaceWith(note);
-		}
-	}
-}
-
 async function loadDocumentContent(doc) {
 	if (doc.loaded) return;
 	Object.assign(doc, await api("read", { id: doc.id }));
@@ -778,66 +575,6 @@ function evictOldTabContent(currentDoc) {
 	}
 }
 
-function createReaderFrame(doc, revision, { hash, scrollTop, scrollLeft }) {
-	const sourceMode = showSource;
-	const frame = document.createElement("iframe");
-	frame.id = "content";
-	frame.title = "Markdown 本文";
-	frame.setAttribute(
-		"sandbox",
-		"allow-same-origin allow-scripts allow-popups allow-popups-to-escape-sandbox",
-	);
-	let content = doc.html;
-	if (sourceMode) {
-		const pre = document.createElement("pre");
-		pre.className = "source";
-		pre.textContent = doc.source;
-		content = pre.outerHTML;
-	}
-	frame.onload = async () => {
-		if (revision !== renderRevision) return;
-		const readerDocument = frame.contentDocument;
-		// Restore pixels only after local fonts finish layout, avoiding scroll anchoring jumps.
-		await readerDocument.fonts.ready;
-		if (revision !== renderRevision) return;
-		readerDocument.documentElement.dataset.theme = theme;
-		readerDocument.body.tabIndex = -1;
-		displayedView = {
-			key: keyFor(doc),
-			mode: sourceMode ? "raw" : "preview",
-			frame,
-		};
-		readerDocument.addEventListener("keydown", shortcuts);
-		readerDocument.addEventListener("pointerdown", () =>
-			tabController.closeMenu(),
-		);
-		preventFileDrop(readerDocument);
-		if (!sourceMode) {
-			watchHighlightSelection(readerDocument, doc, revision);
-			buildOutline(readerDocument);
-			enableReaderLinks(readerDocument, doc);
-			if (hash) jumpTo(readerDocument, hash);
-			loadReaderImages(readerDocument, doc, revision).catch((error) =>
-				status(error.message, true),
-			);
-		}
-		readerSearch.setDocument(readerDocument, keyFor(doc));
-		if (!hash) frame.contentWindow.scrollTo(scrollLeft, scrollTop);
-		if (readerFocusRevision === revision) focusReaderContent();
-	};
-	// WebKit needs allow-scripts for parent-installed listeners; the document CSP forbids execution.
-	frame.srcdoc = `<!doctype html>
-<html lang="ja" data-theme="${theme}">
-<head>
-<meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'self'; font-src 'self'; img-src blob:; base-uri 'none'; form-action 'none'">
-<link rel="stylesheet" href="${location.origin}/reader.css">
-</head>
-<body>${content}</body>
-</html>`;
-	return frame;
-}
-
 async function activate(
 	key,
 	{
@@ -855,8 +592,8 @@ async function activate(
 	if (!preserveTabSelection) tabController.selectOnly(key);
 	if (record) recordView();
 	const revision = ++renderRevision;
-	clearReader();
-	if (focusReader) readerFocusRevision = revision;
+	reader.clear();
+	if (focusReader) reader.focus(revision);
 	const position = readerPositions.get(key)?.[
 		showSource ? "raw" : "preview"
 	] ?? { x: 0, y: 0 };
@@ -870,13 +607,14 @@ async function activate(
 		await loadDocumentContent(doc);
 		if (revision !== renderRevision) return;
 		evictOldTabContent(doc);
-		byId("content").replaceWith(
-			createReaderFrame(doc, revision, {
-				hash,
-				scrollTop: scrollTop ?? position.y,
-				scrollLeft: position.x,
-			}),
-		);
+		reader.show(doc, {
+			key,
+			revision,
+			sourceMode: showSource,
+			hash,
+			scrollTop: scrollTop ?? position.y,
+			scrollLeft: position.x,
+		});
 		if (revision === renderRevision) showCopyNotice();
 	} catch (error) {
 		if (revision === renderRevision) status(error.message, true);
@@ -920,9 +658,8 @@ const shortcuts = createShortcutHandler({
 		setFocusMode(!document.body.classList.contains("focus-mode"));
 	},
 	dismiss: () => {
-		if (!byId("highlight-toolbar").hidden) {
-			byId("content").contentWindow?.getSelection()?.removeAllRanges();
-			hideHighlightToolbar();
+		if (highlightToolbar.isVisible()) {
+			highlightToolbar.dismiss();
 			return;
 		}
 		if (readerSearch.isOpen()) readerSearch.dismiss();
@@ -958,34 +695,24 @@ byId("reload").addEventListener("click", () =>
 	runExclusiveAction(() => reloadTab()),
 );
 byId("source-toggle").addEventListener("click", () => toggleSource());
-document.addEventListener("focusin", (event) => {
-	if (event.target !== byId("content")) readerFocusRevision = null;
-});
-document.addEventListener("pointerdown", (event) => {
-	readerFocusRevision = null;
-	if (!byId("highlight-toolbar").contains(event.target)) {
-		byId("content").contentWindow?.getSelection()?.removeAllRanges();
-		hideHighlightToolbar();
-	}
-});
-byId("highlight-toolbar").addEventListener("click", (event) => {
-	if (event.target.closest("#highlight-remove")) {
-		runExclusiveAction(() => applyHighlight(null));
-		return;
-	}
-	const color = event.target.closest("[data-highlight-color]")?.dataset
-		.highlightColor;
-	if (color) runExclusiveAction(() => applyHighlight(color));
-});
-function preventFileDrop(target) {
-	target.addEventListener("dragover", (event) => event.preventDefault());
-	target.addEventListener("drop", (event) => {
-		event.preventDefault();
-		status(
-			"ファイルのドロップは利用できません。pnpm copy-docs でコピーしてください。",
-			true,
-		);
-	});
+
+function preventFileDrop(target, options) {
+	target.addEventListener(
+		"dragover",
+		(event) => event.preventDefault(),
+		options,
+	);
+	target.addEventListener(
+		"drop",
+		(event) => {
+			event.preventDefault();
+			status(
+				"ファイルのドロップは利用できません。pnpm copy-docs でコピーしてください。",
+				true,
+			);
+		},
+		options,
+	);
 }
 preventFileDrop(document);
 runExclusiveAction(async () => {

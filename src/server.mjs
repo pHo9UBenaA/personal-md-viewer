@@ -15,6 +15,11 @@ const assets = new Map([
 	["/icons/viewer-512.png", ["icons/viewer-512.png", "image/png"]],
 	["/app.js", ["scripts/app.js", "text/javascript; charset=utf-8"]],
 	["/dom.js", ["scripts/dom.js", "text/javascript; charset=utf-8"]],
+	["/reader.js", ["scripts/reader.js", "text/javascript; charset=utf-8"]],
+	[
+		"/highlight-toolbar.js",
+		["scripts/highlight-toolbar.js", "text/javascript; charset=utf-8"],
+	],
 	["/notices.js", ["scripts/notices.js", "text/javascript; charset=utf-8"]],
 	["/palette.js", ["scripts/palette.js", "text/javascript; charset=utf-8"]],
 	["/tree.js", ["scripts/tree.js", "text/javascript; charset=utf-8"]],
