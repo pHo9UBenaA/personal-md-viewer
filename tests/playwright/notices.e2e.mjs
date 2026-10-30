@@ -107,6 +107,7 @@ for (const allowHtml of [false, true]) {
 		});
 		try {
 			await page.goto(await listenOnLoopback(server));
+			await openCopiedPath(page, path);
 			await expect(
 				page
 					.frameLocator("#content")

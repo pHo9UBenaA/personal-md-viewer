@@ -197,13 +197,17 @@ function recordView() {
 	history.pushState({ viewer: historyTag, active, tabs: keys, paths }, "");
 }
 
-async function addDocuments(documents) {
+function registerDocuments(documents) {
 	for (const doc of documents) {
 		const key = keyFor(doc);
 		if (availableDocuments.has(key))
 			Object.assign(availableDocuments.get(key), doc);
 		else availableDocuments.set(key, doc);
 	}
+}
+
+async function addDocuments(documents) {
+	registerDocuments(documents);
 	if (documents.length) await activate(keyFor(documents[0]));
 }
 
@@ -717,7 +721,7 @@ function preventFileDrop(target, options) {
 }
 preventFileDrop(document);
 runExclusiveAction(async () => {
-	if (savedView) {
+	if (savedView?.tabs?.length) {
 		await restoreView(savedView);
 		const data = await api("initial");
 		for (const doc of data.documents) {
@@ -731,7 +735,7 @@ runExclusiveAction(async () => {
 	const documentId = new URLSearchParams(location.hash.slice(1)).get(
 		"document",
 	);
-	if (documentId) {
+	if (!savedView && documentId) {
 		const doc = await api("read", { id: documentId });
 		if (revision !== navigationRevision) return;
 		await addDocuments([{ ...doc, loaded: true }]);
@@ -739,6 +743,11 @@ runExclusiveAction(async () => {
 	}
 	const data = await api("initial");
 	if (revision !== navigationRevision) return;
-	if (data.documents.length) await addDocuments(data.documents);
-	else status("pnpm copy-docs で content/ にコピーしてから開いてください。");
+	registerDocuments(data.documents);
+	showEmpty(
+		data.documents.length
+			? "ファイル一覧から選択できます。"
+			: "pnpm copy-docs で content/ にコピーしてから開いてください。",
+		{ record: false },
+	);
 });

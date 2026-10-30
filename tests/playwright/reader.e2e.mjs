@@ -4,7 +4,12 @@ import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { createViewerServer } from "../../src/server.mjs";
 import { closeServer, listenOnLoopback } from "../helpers/http.mjs";
-import { openCopiedMarkdown, openFolder, test } from "./helpers.mjs";
+import {
+	openCopiedMarkdown,
+	openCopiedPath,
+	openFolder,
+	test,
+} from "./helpers.mjs";
 
 test("trusted HTML opens details without executing scripts", async ({
 	page,
@@ -21,6 +26,7 @@ test("trusted HTML opens details without executing scripts", async ({
 	const url = await listenOnLoopback(server);
 	try {
 		await page.goto(url);
+		await openCopiedPath(page, join(root, "details.md"));
 		const details = page.frameLocator("#content").locator("details");
 		await expect(details.locator("summary")).toBeVisible();
 		await expect(details.locator("strong")).toBeHidden();

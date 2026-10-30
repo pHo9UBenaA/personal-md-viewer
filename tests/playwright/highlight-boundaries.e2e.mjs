@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { createViewerServer } from "../../src/server.mjs";
 import { closeServer, listenOnLoopback } from "../helpers/http.mjs";
-import { openCopiedMarkdown, test } from "./helpers.mjs";
+import { openCopiedMarkdown, openCopiedPath, test } from "./helpers.mjs";
 
 async function selectText(locator) {
 	await locator.evaluate((element) => {
@@ -31,6 +31,7 @@ for (const allowHtml of [false, true]) {
 		const url = await listenOnLoopback(server);
 		try {
 			await page.goto(url);
+			await openCopiedPath(page, file);
 			const cells = page.frameLocator("#content").locator("td");
 			await selectText(cells.last());
 			await expect(page.locator("#highlight-toolbar")).toBeVisible();

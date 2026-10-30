@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { createViewerServer } from "../../src/server.mjs";
 import { closeServer, listenOnLoopback } from "../helpers/http.mjs";
-import { test } from "./helpers.mjs";
+import { openCopiedPath, test } from "./helpers.mjs";
 
 test("theme icons load only local SVG assets without external requests", async ({
 	page,
@@ -52,6 +52,7 @@ test("UI SVG permission does not enable SVG images or active HTML in the reader"
 	const url = await listenOnLoopback(server);
 	try {
 		await page.goto(url);
+		await openCopiedPath(page, path);
 		await page
 			.frameLocator("#content")
 			.getByRole("button", { name: "Test", exact: true })

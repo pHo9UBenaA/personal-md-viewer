@@ -3,7 +3,12 @@ import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { createViewerServer } from "../../src/server.mjs";
 import { closeServer, listenOnLoopback } from "../helpers/http.mjs";
-import { openCopiedMarkdown, openTabs, test } from "./helpers.mjs";
+import {
+	openCopiedMarkdown,
+	openCopiedPath,
+	openTabs,
+	test,
+} from "./helpers.mjs";
 import { command } from "./keyboard.mjs";
 
 test("reader search is literal, case-insensitive and never changes marker text nodes", async ({
@@ -96,6 +101,7 @@ test("trusted HTML search skips hidden text and refreshes when details open", as
 	const url = await listenOnLoopback(server);
 	try {
 		await page.goto(url);
+		await openCopiedPath(page, path);
 		await expect(page.frameLocator("#content").locator("body")).toHaveAttribute(
 			"tabindex",
 			"-1",

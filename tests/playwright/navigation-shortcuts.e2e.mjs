@@ -196,6 +196,7 @@ test("trusted HTML editing keeps slash input and supports focus toggling", async
 	const url = await listenOnLoopback(server);
 	try {
 		await page.goto(url);
+		await openCopiedPath(page, path);
 		const input = page
 			.frameLocator("#content")
 			.getByRole("textbox", { name: "Editable", exact: true });

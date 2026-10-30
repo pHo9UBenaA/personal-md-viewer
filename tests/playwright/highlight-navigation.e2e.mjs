@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { createViewerServer } from "../../src/server.mjs";
 import { closeServer, listenOnLoopback } from "../helpers/http.mjs";
+import { openCopiedPath } from "./helpers.mjs";
 
 test("a late highlight save preserves the newly selected tab and its scroll position", async ({
 	page,
@@ -30,6 +31,7 @@ test("a late highlight save preserves the newly selected tab and its scroll posi
 	});
 	try {
 		await page.goto(url);
+		await openCopiedPath(page, highlightedFile);
 		await page.locator("#filter").fill(".md");
 		await expect(page.frameLocator("#content").locator("body")).toHaveAttribute(
 			"tabindex",

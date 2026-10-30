@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { createViewerServer } from "../../src/server.mjs";
 import { closeServer, listenOnLoopback } from "../helpers/http.mjs";
-import { test } from "./helpers.mjs";
+import { openCopiedPath, test } from "./helpers.mjs";
 
 test("highlights can be added, recolored, and removed without leaving focus mode", async ({
 	page,
@@ -22,6 +22,7 @@ test("highlights can be added, recolored, and removed without leaving focus mode
 	const url = await listenOnLoopback(server);
 	try {
 		await page.goto(url);
+		await openCopiedPath(page, file);
 		const focus = page.locator("#focus-toggle");
 		await focus.click();
 		await expect(page.frameLocator("#content").locator("body")).toHaveAttribute(
