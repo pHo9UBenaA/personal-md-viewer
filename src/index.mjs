@@ -3,7 +3,7 @@ import { createViewerServer } from "./server.mjs";
 const args = process.argv.slice(2).filter((arg) => arg !== "--");
 if (args.includes("--help") || args.includes("-h")) {
 	console.log(
-		"Usage: pnpm start [--recursive] [--allow-html] [file.md | directory ...]\n\n--allow-html renders raw HTML in trusted Markdown. Open the printed local URL. PORT defaults to 3000; PORT=0 selects a free port.",
+		"Usage: pnpm start [--recursive] [--allow-html] [content/file.md | content/directory ...]\n\nOnly content/ is accessible. Run pnpm copy-docs SOURCE_DIRECTORY first. Without paths, all copied Markdown is listed recursively.\n--allow-html renders raw HTML in trusted Markdown. PORT defaults to 3000; PORT=0 selects a free port.",
 	);
 } else {
 	try {

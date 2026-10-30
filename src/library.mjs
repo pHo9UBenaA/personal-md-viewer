@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import {
+	lstat,
 	open,
 	opendir,
 	realpath,
@@ -18,11 +19,15 @@ import {
 	resolve,
 	sep,
 } from "node:path";
+import { fileURLToPath } from "node:url";
 import { HIGHLIGHT_COLORS, highlightOpenTag } from "./highlights.mjs";
 
+export const COPIED_DIRECTORY = fileURLToPath(
+	new URL("../content/", import.meta.url),
+);
 export const MAX_FILE_BYTES = 1024 * 1024;
-const ignoredEntryNames = new Set([".git", "node_modules", ".DS_Store"]);
-const MAX_DIRECTORY_DEPTH = 32;
+export const ignoredEntryNames = new Set([".git", "node_modules", ".DS_Store"]);
+export const MAX_DIRECTORY_DEPTH = 32;
 const MAX_PATH_CHARS = 4096;
 const HIGHLIGHT_CLOSE_TAG = "</mark>";
 export const isMarkdown = (path) => /\.(md|markdown)$/i.test(path);
@@ -114,7 +119,18 @@ export async function readBounded(path, root, maxBytes = MAX_FILE_BYTES) {
 	}
 }
 
-export function createLibrary() {
+// The copy directory itself must not redirect the entire library elsewhere.
+export async function resolveCopiedDirectory(directory = COPIED_DIRECTORY) {
+	const path = normalizePath(directory);
+	// Strip a trailing separator: lstat("link/") would follow a directory symlink.
+	if (!(await lstat(path)).isDirectory())
+		throw new ViewerError("コピー先には通常のフォルダーが必要です。", 403);
+	return realpath(path);
+}
+
+export async function createLibrary({ directory = COPIED_DIRECTORY } = {}) {
+	const configuredRoot = normalizePath(directory);
+	const copiedRoot = await resolveCopiedDirectory(configuredRoot);
 	const documents = new Map();
 	// A file can have different link scopes when opened from different roots.
 	const documentIdByScopedPath = new Map();
@@ -145,8 +161,29 @@ export function createLibrary() {
 		return doc;
 	}
 
-	async function openPath(input, recursive = false) {
-		const path = await realpath(normalizePath(input));
+	async function resolveAllowedPath(input) {
+		let requested = normalizePath(input);
+		// Preserve OS aliases in the configured path, such as /var -> /private/var.
+		if (isWithinRoot(configuredRoot, requested))
+			requested = resolve(copiedRoot, relative(configuredRoot, requested));
+		// Reject outside paths before touching the filesystem, including missing paths.
+		if (!isWithinRoot(copiedRoot, requested))
+			throw new ViewerError(
+				"content/ にコピーしたファイルだけを開けます。",
+				403,
+			);
+		const canonical = await realpath(requested);
+		if (!isWithinRoot(copiedRoot, canonical))
+			throw new ViewerError("content/ の外は参照できません。", 403);
+		return canonical;
+	}
+
+	async function openPath(
+		input,
+		recursive = false,
+		{ allowEmpty = false } = {},
+	) {
+		const path = await resolveAllowedPath(input);
 		const details = await stat(path);
 		if (details.isFile()) {
 			if (!isMarkdown(path))
@@ -184,7 +221,7 @@ export function createLibrary() {
 			}
 		}
 		await walk(path, 0);
-		if (!found.length)
+		if (!found.length && !allowEmpty)
 			throw new ViewerError(
 				"Markdown がありません。必要なら「サブフォルダーも含める」を選択してください。",
 			);
@@ -211,7 +248,7 @@ export function createLibrary() {
 		const path = await realpath(resolve(dirname(doc.path), decoded));
 		if (!isWithinRoot(doc.root, path))
 			throw new ViewerError(
-				"選択したフォルダーの外は参照できません。絶対パスで開いてください。",
+				"選択したフォルダーの外は参照できません。content/ 内のパスを指定してください。",
 				403,
 			);
 		if (kind === "markdown" && !isMarkdown(path))
@@ -223,9 +260,12 @@ export function createLibrary() {
 
 	return {
 		openPath,
+		openCopiedDirectory() {
+			return openPath(copiedRoot, true, { allowEmpty: true });
+		},
 		async restore(pathInput, rootInput) {
-			const path = await realpath(normalizePath(pathInput));
-			const root = await realpath(normalizePath(rootInput));
+			const path = await resolveAllowedPath(pathInput);
+			const root = await resolveAllowedPath(rootInput);
 			if (!(await stat(root)).isDirectory() || !isWithinRoot(root, path))
 				throw new ViewerError("保存したフォルダーの外は復元できません。", 403);
 			const details = await stat(path);

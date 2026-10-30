@@ -80,6 +80,7 @@ export async function createViewerServer({
 	recursive = false,
 	publicOrigin,
 	allowHtml = false,
+	contentDirectory,
 } = {}) {
 	let allowedOrigin;
 	if (publicOrigin) {
@@ -97,8 +98,10 @@ export async function createViewerServer({
 			);
 		allowedOrigin = url.origin;
 	}
-	const library = createLibrary();
-	const initial = [];
+	const library = await createLibrary({ directory: contentDirectory });
+	const initial = initialPaths.length
+		? []
+		: await library.openCopiedDirectory();
 	for (const path of initialPaths) {
 		for (const doc of await library.openPath(path, recursive))
 			initial.push(doc);
@@ -186,15 +189,6 @@ export async function createViewerServer({
 						return send(200, {
 							...doc,
 							html: renderMarkdown(doc.source, { allowHtml }),
-						});
-					}
-					case "/api/render": {
-						if (typeof body.source !== "string")
-							throw new ViewerError("Markdown が必要です。");
-						if (Buffer.byteLength(body.source) > MAX_FILE_BYTES)
-							throw new ViewerError("Markdown の上限は 1 MiB です。", 413);
-						return send(200, {
-							html: renderMarkdown(body.source, { allowHtml }),
 						});
 					}
 					case "/api/highlight": {

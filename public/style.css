@@ -84,49 +84,6 @@ kbd {
 .search-action {
 	background: var(--action);
 }
-.add-menu {
-	position: relative;
-}
-.add-menu summary {
-	padding: 7px 11px;
-	cursor: pointer;
-	list-style: none;
-	background: var(--button);
-	border: 1px solid var(--border);
-	border-radius: 6px;
-}
-.add-menu summary::-webkit-details-marker {
-	display: none;
-}
-.add-menu summary::after {
-	display: inline-block;
-	margin-left: 8px;
-	color: var(--muted);
-	content: "⌄";
-}
-.add-menu[open] summary,
-.add-menu summary:hover {
-	background: var(--hover);
-}
-.add-menu-panel {
-	position: absolute;
-	top: calc(100% + 8px);
-	right: 0;
-	z-index: 10;
-	display: grid;
-	width: max-content;
-	min-width: 170px;
-	padding: 6px;
-	background: var(--dialog);
-	border: 1px solid var(--border);
-	border-radius: 8px;
-	box-shadow: 0 12px 35px #0005;
-}
-.add-menu-panel button {
-	text-align: left;
-	background: transparent;
-	border: 0;
-}
 .theme-action {
 	min-width: 68px;
 }
@@ -390,9 +347,6 @@ form > label {
 	font-size: 11px;
 	color: var(--muted);
 }
-#highlight-note:not(:empty) {
-	max-width: 130px;
-}
 @media (max-width: 480px) {
 	.highlight-toolbar {
 		gap: 5px;
@@ -460,9 +414,6 @@ form > label {
 .highlight-toolbar .highlight-remove:hover,
 .highlight-toolbar .highlight-remove:focus-visible {
 	background: var(--hover);
-}
-#highlight-note:empty {
-	display: none;
 }
 iframe {
 	flex: 1;
@@ -583,10 +534,6 @@ dialog::backdrop {
 	overflow: hidden;
 	clip-path: inset(50%);
 }
-body.dragging {
-	outline: 3px dashed var(--accent);
-	outline-offset: -5px;
-}
 @media (max-width: 760px) {
 	.workspace {
 		grid-template-rows: auto minmax(0, 1fr);
@@ -609,8 +556,7 @@ body.dragging {
 	.brand {
 		font-size: 14px;
 	}
-	.toolbar button,
-	.add-menu summary {
+	.toolbar button {
 		font-size: 12px;
 	}
 	.toolbar-actions {

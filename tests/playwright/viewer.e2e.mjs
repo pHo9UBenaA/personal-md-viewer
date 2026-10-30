@@ -1,25 +1,27 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
 import { createViewerServer } from "../../src/server.mjs";
 import { closeServer, listenOnLoopback } from "../helpers/http.mjs";
+import { openCopiedMarkdown, test } from "./helpers.mjs";
 
 let folder;
 test("trusted HTML opens details without executing scripts", async ({
 	page,
 }) => {
-	const server = await createViewerServer({ allowHtml: true });
+	const root = await mkdtemp(join(tmpdir(), "viewer-trusted-html-"));
+	await writeFile(
+		join(root, "details.md"),
+		"<!-- 作業用本文 -->\n\n<details>\n<summary>詳細</summary>\n\n**本文**\n\n</details>\n<script>parent.__rawHtmlRan = true</script>",
+	);
+	const server = await createViewerServer({
+		contentDirectory: root,
+		allowHtml: true,
+	});
 	const url = await listenOnLoopback(server);
 	try {
 		await page.goto(url);
-		await page.locator("#files").setInputFiles({
-			name: "details.md",
-			mimeType: "text/markdown",
-			buffer: Buffer.from(
-				"<!-- 作業用本文 -->\n\n<details>\n<summary>詳細</summary>\n\n**本文**\n\n</details>\n<script>parent.__rawHtmlRan = true</script>",
-			),
-		});
 		const details = page.frameLocator("#content").locator("details");
 		await expect(details.locator("summary")).toBeVisible();
 		await expect(details.locator("strong")).toBeHidden();
@@ -28,19 +30,17 @@ test("trusted HTML opens details without executing scripts", async ({
 		expect(await page.evaluate(() => window.__rawHtmlRan)).toBeUndefined();
 	} finally {
 		await closeServer(server);
+		await rm(root, { recursive: true, force: true });
 	}
 });
 test("fenced code wraps long lines without horizontal scrolling", async ({
 	page,
+	viewer,
 }) => {
 	await page.setViewportSize({ width: 500, height: 820 });
-	await page.goto("/");
-	await page.locator("#files").setInputFiles({
+	await openCopiedMarkdown(page, viewer.directory, {
 		name: "code.md",
-		mimeType: "text/markdown",
-		buffer: Buffer.from(
-			`\`\`\`txt\n${"longword".repeat(100)}\n${"word ".repeat(100)}\n\`\`\``,
-		),
+		source: `\`\`\`txt\n${"longword".repeat(100)}\n${"word ".repeat(100)}\n\`\`\``,
 	});
 	const pre = page.frameLocator("#content").locator("pre");
 	await expect(pre).toBeVisible();
@@ -51,30 +51,34 @@ test("fenced code wraps long lines without horizontal scrolling", async ({
 	}));
 	expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth);
 });
-test("imports over 200 documents lazily and accepts a drop onto the reader", async ({
+test("copied folders load documents lazily and reject a drop onto the reader", async ({
 	page,
+	viewer,
 }) => {
-	await page.goto("/");
-	await expect(page.getByRole("status")).toContainText("パス入力");
-	let renders = 0;
-	page.on("request", (request) => {
-		if (request.url().endsWith("/api/render")) renders++;
-	});
-	await page.locator("#files").setInputFiles(
-		Array.from({ length: 201 }, (_, index) => ({
-			name: `${String(index).padStart(3, "0")}.md`,
-			mimeType: "text/markdown",
-			buffer: Buffer.from(`# Document ${index}`),
-		})),
+	const many = await mkdtemp(join(viewer.directory, "many-"));
+	await Promise.all(
+		Array.from({ length: 201 }, (_, index) =>
+			writeFile(
+				join(many, `${String(index).padStart(3, "0")}.md`),
+				`# Document ${index}`,
+			),
+		),
 	);
+	await page.goto("/");
+	let reads = 0;
+	page.on("request", (request) => {
+		if (request.url().endsWith("/api/read")) reads++;
+	});
+	await page.locator("#path").fill(many);
+	await page.locator("#open-form button").click();
 	await expect(page.getByRole("tab")).toHaveCount(1);
-	await expect(page.getByRole("treeitem")).toHaveCount(201);
+	await expect(page.locator(".tree-file")).toHaveCount(201);
 	await expect(
 		page
 			.frameLocator("#content")
 			.getByRole("heading", { name: "Document 0", exact: true }),
 	).toBeVisible();
-	expect(renders).toBe(1);
+	expect(reads).toBe(1);
 	await page.getByRole("treeitem", { name: "200.md", exact: true }).click();
 	await expect(page.getByRole("tab")).toHaveCount(2);
 	await expect(
@@ -82,7 +86,7 @@ test("imports over 200 documents lazily and accepts a drop onto the reader", asy
 			.frameLocator("#content")
 			.getByRole("heading", { name: "Document 200", exact: true }),
 	).toBeVisible();
-	expect(renders).toBe(2);
+	expect(reads).toBe(2);
 	await page.evaluate(() => {
 		const frame = document.getElementById("content").contentDocument;
 		const transfer = new DataTransfer();
@@ -97,13 +101,16 @@ test("imports over 200 documents lazily and accepts a drop onto the reader", asy
 			}),
 		);
 	});
-	await expect(page.getByRole("tab")).toHaveCount(3);
-	await expect(page.getByRole("treeitem")).toHaveCount(202);
+	await expect(page.getByRole("status")).toContainText(
+		"ドロップは利用できません",
+	);
+	await expect(page.getByRole("tab")).toHaveCount(2);
+	await expect(page.locator(".tree-file")).toHaveCount(201);
 	await expect(
 		page
 			.frameLocator("#content")
 			.getByRole("heading", { name: "Dropped document" }),
-	).toBeVisible();
+	).toHaveCount(0);
 });
 test("theme persists and syncs the reader and browser tabs", async ({
 	page,
@@ -168,7 +175,10 @@ test("highlights can be added, recolored, and removed without leaving focus mode
 		"# Marker test\n\nChoose **important words** now." +
 		"\n\nMore text.".repeat(100);
 	await writeFile(file, source);
-	const server = await createViewerServer({ initialPaths: [file] });
+	const server = await createViewerServer({
+		contentDirectory: root,
+		initialPaths: [file],
+	});
 	const url = await listenOnLoopback(server);
 	try {
 		await page.goto(url);
@@ -248,8 +258,8 @@ test("highlights can be added, recolored, and removed without leaving focus mode
 		await rm(root, { recursive: true, force: true });
 	}
 });
-test.beforeAll(async () => {
-	folder = await mkdtemp(join(tmpdir(), "viewer-browser-日本語-"));
+test.beforeAll(async ({ viewer }) => {
+	folder = await mkdtemp(join(viewer.directory, "viewer-browser-日本語-"));
 	await mkdir(join(folder, "nested"));
 	await writeFile(
 		join(folder, "A # %.md"),
@@ -272,7 +282,7 @@ test.afterAll(async () => {
 });
 async function openFolder(page) {
 	await page.goto("/");
-	await expect(page.getByRole("status")).toContainText("パス入力");
+	await expect(page.getByRole("status")).toContainText("pnpm copy-docs");
 	await expect(page.locator("#recursive")).toBeChecked();
 	await expect(page.locator("#palette-recursive")).toBeChecked();
 	await page
@@ -457,7 +467,7 @@ test("source view survives tab closing and closed documents remain in the tree",
 		page.getByRole("treeitem", { name: "B.markdown" }),
 	).toBeVisible();
 	await expect(
-		page.getByRole("heading", { name: "パスから、すぐ読む。" }),
+		page.getByRole("heading", { name: "コピーした文書を読む。" }),
 	).toBeVisible();
 });
 test("focus mode fills the viewport and can be toggled from the reader", async ({
@@ -520,17 +530,17 @@ test("Command+Left collapses the hovered tree without closing the active tab", a
 	await page.locator("#filter").fill("");
 	await expect(folders).toHaveCount(0);
 });
-test("back and forward restore imported files and open tabs during the session", async ({
+test("back and forward restore copied files and open tabs during the session", async ({
 	page,
 }) => {
 	await openFolder(page);
 	await page.getByRole("treeitem", { name: "B.markdown" }).click();
 	await expect(page.getByRole("tab")).toHaveCount(2);
-	await page.locator("#files").setInputFiles({
-		name: "C.md",
-		mimeType: "text/markdown",
-		buffer: Buffer.from("# Third document"),
-	});
+	const third = join(folder, "C.md");
+	await writeFile(third, "# Third document");
+	await page.getByRole("button", { name: /開く・検索/ }).click();
+	await page.locator("#command").fill(third);
+	await page.locator("#command").press("Enter");
 	await expect(page.getByRole("tab")).toHaveCount(3);
 	await expect(
 		page.frameLocator("#content").getByRole("heading", {
@@ -580,7 +590,7 @@ test("back and forward restore imported files and open tabs during the session",
 	await expect(page.getByRole("tab")).toHaveCount(0);
 	await expect(page.getByRole("treeitem", { name: "C.md" })).toBeVisible();
 });
-test("reload and history navigation reopen path tabs, while imports need selection again", async ({
+test("reload and history navigation reopen copied path tabs", async ({
 	page,
 }) => {
 	await openFolder(page);
@@ -612,21 +622,12 @@ test("reload and history navigation reopen path tabs, while imports need selecti
 			name: "Second document",
 		}),
 	).toBeVisible();
-	await page.locator("#files").setInputFiles({
-		name: "C.md",
-		mimeType: "text/markdown",
-		buffer: Buffer.from("# Imported document"),
-	});
-	await expect(page.getByRole("tab")).toHaveCount(3);
 	await page.reload();
 	await expect(page.getByRole("tab")).toHaveCount(2);
-	await expect(page.getByRole("status")).toContainText(
-		"再度取り込んでください",
-	);
 	await expect(
-		page.frameLocator("#content").getByRole("heading", {
-			name: "Second document",
-		}),
+		page
+			.frameLocator("#content")
+			.getByRole("heading", { name: "Second document" }),
 	).toBeVisible();
 });
 test("initial folders remain in the tree after restoring tabs on reload", async ({
@@ -640,7 +641,10 @@ test("initial folders remain in the tree after restoring tabs on reload", async 
 	await writeFile(join(first, "A.md"), "# First note");
 	await writeFile(join(first, "B.md"), "# Unopened note");
 	await writeFile(join(second, "C.md"), "# Selected note");
-	const server = await createViewerServer({ initialPaths: [first, second] });
+	const server = await createViewerServer({
+		contentDirectory: root,
+		initialPaths: [first, second],
+	});
 	const url = await listenOnLoopback(server);
 	try {
 		await page.goto(url);
@@ -663,31 +667,38 @@ test("initial folders remain in the tree after restoring tabs on reload", async 
 		await rm(root, { recursive: true, force: true });
 	}
 });
-test("an imported-only history entry explains why it cannot survive reload", async ({
+test("forged history cannot reopen a file outside the copy directory", async ({
 	page,
 }) => {
-	await page.goto("/");
-	await page.locator("#files").setInputFiles({
-		name: "imported.md",
-		mimeType: "text/markdown",
-		buffer: Buffer.from("# Imported document"),
-	});
-	await expect(page.getByRole("tab")).toHaveCount(1);
-	await page.reload();
-	await expect(page.getByRole("tab")).toHaveCount(0);
-	await expect(page.getByRole("status")).toContainText(
-		"再度取り込んでください",
-	);
-	await page.locator("#files").setInputFiles({
-		name: "imported.md",
-		mimeType: "text/markdown",
-		buffer: Buffer.from("# Imported again"),
-	});
-	await expect(
-		page.frameLocator("#content").getByRole("heading", {
-			name: "Imported again",
-		}),
-	).toBeVisible();
+	const outside = await mkdtemp(join(tmpdir(), "viewer-outside-"));
+	const path = join(outside, "secret.md");
+	await writeFile(path, "# Outside secret");
+	try {
+		await page.goto("/");
+		await expect(page.getByRole("status")).toContainText("pnpm copy-docs");
+		await page.evaluate(
+			({ path, root }) => {
+				history.replaceState(
+					{
+						...history.state,
+						active: path,
+						tabs: [path],
+						paths: [{ path, root }],
+					},
+					"",
+				);
+			},
+			{ path, root: outside },
+		);
+		await page.reload();
+		await expect(page.getByRole("tab")).toHaveCount(0);
+		await expect(page.getByRole("status")).toContainText(
+			"コピーしたファイルだけ",
+		);
+		await expect(page.getByText("Outside secret")).toHaveCount(0);
+	} finally {
+		await rm(outside, { recursive: true, force: true });
+	}
 });
 test("deleted path tabs are skipped during history restoration", async ({
 	page,
@@ -745,41 +756,32 @@ test("sidebar width can be dragged, adjusted by keyboard, and restored", async (
 	await page.setViewportSize({ width: 1280, height: 820 });
 	await expect(resizer).toHaveAttribute("aria-valuenow", String(adjustedWidth));
 });
-test("native folder input reads file content without pretending it has absolute paths", async ({
+test("file pickers are absent and outside paths are rejected in both forms", async ({
 	page,
 }) => {
 	await page.goto("/");
-	await expect(page.getByRole("status")).toContainText("パス入力");
-	await page.locator("#add-menu summary").click();
-	await expect(
-		page.getByRole("button", { name: "ファイルを選択" }),
-	).toBeVisible();
-	const chooser = page.waitForEvent("filechooser");
-	await page.getByRole("button", { name: "フォルダーを選択" }).click();
-	await (await chooser).setFiles(folder);
-	await expect(page.locator("#add-menu")).not.toHaveAttribute("open", "");
-	await expect(page.getByRole("tab")).toHaveCount(1);
-	await expect(
-		page.getByRole("treeitem", { name: "nested フォルダー" }),
-	).toBeVisible();
-	await expect(
-		page
-			.frameLocator("#content")
-			.getByRole("heading", { name: "First document", exact: true }),
-	).toBeVisible();
-	await expect(
-		page.frameLocator("#content").getByRole("img", { name: "pixel" }),
-	).toHaveAttribute("src", /^blob:/);
-	await expect(page.getByRole("button", { name: "再読み込み" })).toBeDisabled();
-	await page
-		.frameLocator("#content")
-		.getByRole("link", { name: "Next" })
-		.click();
-	await expect(
-		page
-			.frameLocator("#content")
-			.getByRole("heading", { name: "Second document" }),
-	).toBeVisible();
+	await expect(page.locator('input[type="file"]')).toHaveCount(0);
+	await page.locator("#path").fill("/outside/not-copied.md");
+	await page.locator("#open-form button").click();
+	await expect(page.getByRole("status")).toContainText(
+		"コピーしたファイルだけ",
+	);
+	await page.getByRole("button", { name: /開く・検索/ }).click();
+	await page.locator("#command").fill("/outside/not-copied.md");
+	await page.locator("#command").press("Enter");
+	await expect(page.getByRole("status")).toContainText(
+		"コピーしたファイルだけ",
+	);
+	await expect(page.getByRole("tab")).toHaveCount(0);
+	await page.locator("#palette-close").click();
+	await page.evaluate(() =>
+		document.dispatchEvent(
+			new DragEvent("drop", { bubbles: true, cancelable: true }),
+		),
+	);
+	await expect(page.getByRole("status")).toContainText(
+		"ドロップは利用できません",
+	);
 });
 test("palette includes subfolders by default and the checkbox can opt out", async ({
 	page,
@@ -802,7 +804,7 @@ test("missing paths are recoverable and mobile opening remains usable", async ({
 }) => {
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.goto("/");
-	await expect(page.getByRole("status")).toContainText("パス入力");
+	await expect(page.getByRole("status")).toContainText("pnpm copy-docs");
 	await page.locator("#path").fill(join(folder, "missing.md"));
 	await page.locator("#open-form button").click();
 	await expect(page.getByRole("status")).toContainText("見つかりません");

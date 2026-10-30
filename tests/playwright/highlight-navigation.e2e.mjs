@@ -15,7 +15,10 @@ test("a late highlight save preserves the newly selected tab and its scroll posi
 		join(root, "B.md"),
 		`# Second\n\n${"Reading paragraph.\n\n".repeat(100)}`,
 	);
-	const server = await createViewerServer({ initialPaths: [root] });
+	const server = await createViewerServer({
+		contentDirectory: root,
+		initialPaths: [root],
+	});
 	const url = await listenOnLoopback(server);
 	const saveReceived = Promise.withResolvers();
 	const saveReleased = Promise.withResolvers();

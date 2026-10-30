@@ -38,7 +38,7 @@ before(async () => {
 	await writeFile(join(folder, "pixel.png"), Buffer.from([137, 80, 78, 71]));
 	await writeFile(join(root, "secret.md"), "secret");
 	await symlink(join(root, "secret.md"), join(folder, "escape.md"));
-	server = await createViewerServer();
+	server = await createViewerServer({ contentDirectory: root });
 	base = await listenOnLoopback(server);
 	const html = await (await fetch(base)).text();
 	token = html.match(/name="viewer-token" content="([^"]+)"/)[1];
@@ -317,17 +317,13 @@ test("highlights cannot rewrite Markdown structure through a mistaken text offse
 	assert.equal(response.status, 409);
 	assert.equal(await readFile(file, "utf8"), source);
 });
-test("open, read, and render enforce Markdown byte limits", async () => {
+test("open and read enforce Markdown byte limits", async () => {
 	const oversizedFile = join(root, "big.md");
 	await writeFile(oversizedFile, "x".repeat(MAX_FILE_BYTES + 1));
 	assert.equal((await api("open", { path: oversizedFile })).status, 413);
 	const { documents: oversized } = await apiJson("open", { path: root });
 	const bigId = oversized.find((doc) => doc.name === "big.md").id;
 	assert.equal((await api("read", { id: bigId })).status, 413);
-	assert.equal(
-		(await api("render", { source: "x".repeat(2 * MAX_FILE_BYTES) })).status,
-		413,
-	);
 });
 
 test("open registers folders with more than one thousand documents", async () => {
@@ -404,6 +400,7 @@ test("configured origin supports proxies without trusting forwarded headers", as
 		await assert.rejects(createViewerServer({ publicOrigin: invalid }));
 	}
 	const proxyServer = await createViewerServer({
+		contentDirectory: root,
 		publicOrigin: "https://md.localhost",
 	});
 	const url = await listenOnLoopback(proxyServer);
@@ -465,18 +462,21 @@ test(
 		await assert.rejects(readBounded(pipe, root), /通常のファイル/);
 	},
 );
-test("render limits count UTF-8 bytes and accept the exact boundary", async () => {
+test("read limits count UTF-8 bytes and accept the exact boundary", async () => {
 	const source = `${"あ".repeat(Math.floor(MAX_FILE_BYTES / 3))}x`;
 	assert.equal(Buffer.byteLength(source), MAX_FILE_BYTES);
-	const accepted = await api("render", { source });
-	assert.equal(accepted.status, 200);
-	assert.equal((await accepted.json()).html, `<p>${source}</p>\n`);
-	assert.equal((await api("render", { source: `${source}x` })).status, 413);
+	const path = join(root, "boundary.md");
+	await writeFile(path, source);
+	const { documents } = await apiJson("open", { path });
+	const accepted = await apiJson("read", { id: documents[0].id });
+	assert.equal(accepted.html, `<p>${source}</p>\n`);
+	await writeFile(path, `${source}x`);
+	assert.equal((await api("read", { id: documents[0].id })).status, 413);
 });
 
 test("malformed JSON is rejected without breaking subsequent requests", async () => {
 	for (const body of ["{", "null", "[]", "true"]) {
-		const response = await fetch(`${base}/api/render`, {
+		const response = await fetch(`${base}/api/initial`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json", "X-Viewer-Token": token },
 			body,
@@ -484,9 +484,8 @@ test("malformed JSON is rejected without breaking subsequent requests", async ()
 		assert.equal(response.status, 400, body);
 	}
 	assert.equal(
-		(await api("render", { source: "ok" }, { "Content-Type": "text/plain" }))
-			.status,
+		(await api("initial", {}, { "Content-Type": "text/plain" })).status,
 		415,
 	);
-	assert.equal((await api("render", { source: "ok" })).status, 200);
+	assert.equal((await api("initial")).status, 200);
 });

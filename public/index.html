@@ -16,18 +16,9 @@
       <button id="palette-open" class="search-action" type="button">
         開く・検索 <kbd>⌘⇧P</kbd>
       </button>
-      <details id="add-menu" class="add-menu">
-        <summary>追加</summary>
-        <div class="add-menu-panel" aria-label="ファイルを追加">
-          <button id="pick-files" type="button">ファイルを選択</button>
-          <button id="pick-folder" type="button">フォルダーを選択</button>
-        </div>
-      </details>
       <button id="theme-toggle" class="theme-action" type="button"
         aria-label="ダークモード" aria-pressed="false">ダーク</button>
     </div>
-    <input id="files" type="file" accept=".md,.markdown" multiple hidden>
-    <input id="folder" type="file" webkitdirectory multiple hidden>
   </header>
 
   <div id="status" role="status" aria-live="polite"></div>
@@ -51,15 +42,15 @@
       <div id="tabs" role="tablist" aria-label="Markdown タブ"></div>
       <section id="empty">
         <p class="eyebrow">LOCAL MARKDOWN READER</p>
-        <h1>パスから、すぐ読む。</h1>
+        <h1>コピーした文書を読む。</h1>
         <p>
-          Markdown やフォルダーを開くと、ここにタブが並びます。<br>
-          本文は編集せず、選択した文章にマーカーを保存できます。
+          content/ にコピーした Markdown だけを開けます。<br>
+          マーカーはコピーに保存し、元ファイルは変更しません。
         </p>
         <form id="open-form">
           <label for="path">ファイル・フォルダーのパス</label>
           <div class="path-row">
-            <input id="path" type="text" placeholder="/Users/you/Documents/notes"
+            <input id="path" type="text" placeholder="content/notes"
               spellcheck="false" autocomplete="off" required>
             <button type="submit">開く</button>
           </div>
@@ -68,8 +59,8 @@
           </label>
         </form>
         <p class="hint">
-          ~ と相対パスにも対応。ファイルやフォルダーをこの画面にドロップしても開けます。<br>
-          フォルダー選択では、選択したフォルダー以下の Markdown を読み込みます。
+          まずターミナルで pnpm copy-docs コピー元フォルダー を実行してください。<br>
+          コピー後に content/ を開くか、サーバーを再起動すると一覧に追加されます。
         </p>
       </section>
 
@@ -97,7 +88,6 @@
             aria-label="青のマーカー" aria-pressed="false" title="青"></button>
           <button type="button" id="highlight-remove" class="highlight-remove"
             aria-label="マーカーを外す" title="マーカーを外す">×</button>
-          <span id="highlight-note"></span>
         </div>
         <iframe id="content" title="Markdown 本文"
           sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>
@@ -111,7 +101,7 @@
       <button id="palette-close" type="button" aria-label="閉じる">Esc</button>
     </div>
     <form id="palette-form">
-      <label for="command">絶対パス、または取り込み済みのファイル名</label>
+      <label for="command">content/ 内のパス、または登録済みのファイル名</label>
       <div class="path-row">
         <input id="command" type="text" autocomplete="off" spellcheck="false"
           placeholder="パスを入力 / ファイルを検索">

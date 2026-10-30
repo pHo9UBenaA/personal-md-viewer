@@ -4,7 +4,7 @@ const $ = (id) => document.getElementById(id);
 const token = document.querySelector('meta[name="viewer-token"]').content;
 const availableDocuments = new Map();
 const tabs = new Map();
-const historyTag = "markdown-viewer-v2";
+const historyTag = "markdown-viewer-copied-v1";
 const savedView = history.state?.viewer === historyTag ? history.state : null;
 if (!savedView)
 	history.replaceState(
@@ -18,15 +18,12 @@ let navigationRevision = 0;
 let showSource = false;
 let busy = false;
 let blobUrls = [];
-let importNumber = 0;
 let highlightSelection = null;
 let highlightListeners = null;
 const collapsedFolders = new Set();
 const filterCollapsedFolders = new Set();
-const MAX_BYTES = 1024 * 1024;
 const MAX_CACHED_TABS = 10;
 const MAX_PAGE_IMAGES = 100;
-const MAX_DIRECTORY_DEPTH = 32;
 const MIN_SIDEBAR_WIDTH_PX = 180;
 const MAX_SIDEBAR_WIDTH_PX = 600;
 const MOBILE_BREAKPOINT_PX = 760;
@@ -443,19 +440,15 @@ function watchHighlightSelection(frameDocument, doc, revision) {
 		}
 		highlightSelection = { key: keyFor(doc), revision, ...selected };
 		$("highlight-toolbar").hidden = false;
-		$("highlight-note").textContent = doc.file
-			? "パスで開いたファイルのみ保存できます"
-			: "";
 		for (const button of $("highlight-toolbar").querySelectorAll(
 			"[data-highlight-color]",
 		)) {
-			button.disabled = Boolean(doc.file);
 			button.setAttribute(
 				"aria-pressed",
 				String(button.dataset.highlightColor === selected.marker?.color),
 			);
 		}
-		$("highlight-remove").disabled = Boolean(doc.file || !selected.marker);
+		$("highlight-remove").disabled = !selected.marker;
 		position();
 	};
 	frameDocument.defaultView.addEventListener("scroll", position, {
@@ -481,12 +474,7 @@ function watchHighlightSelection(frameDocument, doc, revision) {
 async function applyHighlight(color) {
 	const selected = highlightSelection;
 	const doc = selected && tabs.get(selected.key);
-	if (
-		!doc ||
-		doc.file ||
-		selected.revision !== renderRevision ||
-		selected.key !== active
-	)
+	if (!doc || selected.revision !== renderRevision || selected.key !== active)
 		throw new Error("文章を選択し直してください。");
 	const scrollTop = $("content").contentWindow?.scrollY ?? 0;
 	let mode = "add";
@@ -554,7 +542,6 @@ async function restoreView(state) {
 	showEmpty("履歴から復元しています…", { record: false });
 	const paths = new Map((state?.paths ?? []).map((doc) => [doc.path, doc]));
 	let missingPaths = 0;
-	let missingImports = 0;
 	let restoreError = "";
 	for (const key of state?.tabs ?? []) {
 		if (revision !== navigationRevision) return;
@@ -569,7 +556,7 @@ async function restoreView(state) {
 				missingPaths++;
 				restoreError ||= error.message;
 			}
-		} else if (!doc) missingImports++;
+		}
 		if (doc) tabs.set(keyFor(doc), doc);
 	}
 	if (revision !== navigationRevision) return;
@@ -582,15 +569,11 @@ async function restoreView(state) {
 		if (revision !== navigationRevision) return;
 		if (missingPaths)
 			status(`履歴の一部を復元できませんでした。${restoreError}`, true);
-		else if (missingImports)
-			status("ブラウザーから選択したファイルは再度取り込んでください。");
 		return;
 	}
-	let message = "パス入力・ファイル選択・ドラッグ＆ドロップに対応しています。";
+	let message = "pnpm copy-docs で content/ にコピーしてから開いてください。";
 	if (missingPaths)
 		message = `履歴のパスを復元できませんでした。${restoreError}`;
-	else if (missingImports)
-		message = "ブラウザーから選択したファイルは再度取り込んでください。";
 	else if (availableDocuments.size) message = "ファイル一覧から選択できます。";
 	showEmpty(message, { record: false });
 }
@@ -600,33 +583,13 @@ window.addEventListener("popstate", (event) => {
 	void restoreView(event.state);
 });
 
-function resolveImportedLabel(href, label) {
-	if (/^(?:[a-z][a-z\d+.-]*:|\/|\\)/i.test(href)) return null;
-	const base = new URL(
-		label.split("/").map(encodeURIComponent).join("/"),
-		"https://local.invalid/",
-	);
-	const url = new URL(href, base);
-	return decodeURIComponent(url.pathname.slice(1));
-}
-
 async function followLink(doc, href) {
 	const revision = navigationRevision;
-	if (doc.files) {
-		const label = resolveImportedLabel(href, doc.label);
-		const target = [...availableDocuments.entries()].find(
-			([, item]) => item.files === doc.files && item.label === label,
-		);
-		if (!target)
-			throw new Error("リンク先の Markdown もファイル選択から開いてください。");
-		await activate(target[0], { hash: href.split("#")[1] });
-	} else {
-		const data = await api("related", { id: doc.id, href });
-		if (revision !== navigationRevision) return;
-		await addDocuments(data.documents);
-		if (href.includes("#"))
-			await activate(keyFor(data.documents[0]), { hash: href.split("#")[1] });
-	}
+	const data = await api("related", { id: doc.id, href });
+	if (revision !== navigationRevision) return;
+	await addDocuments(data.documents);
+	if (href.includes("#"))
+		await activate(keyFor(data.documents[0]), { hash: href.split("#")[1] });
 }
 
 function jumpTo(frameDocument, hash) {
@@ -687,21 +650,7 @@ async function loadReaderImages(frameDocument, doc, revision) {
 				throw new Error("画像は 1 ページ 100 件までです。");
 			if (/^(?:[a-z][a-z\d+.-]*:|\/|\\)/i.test(href))
 				throw new Error("外部画像・絶対パス画像は読み込みません。");
-			let blob;
-			if (doc.files) {
-				const label = resolveImportedLabel(href, doc.label);
-				const file = doc.files.get(label);
-				if (!file || !/\.(png|jpe?g|gif|webp|avif)$/i.test(label))
-					throw new Error(
-						"画像を読むには、画像を含むフォルダーを選択してください。",
-					);
-				if (file.size > 5 * MAX_BYTES)
-					throw new Error("画像の上限は 5 MiB です。");
-				const extension = label.split(".").pop().toLowerCase();
-				blob = new Blob([await file.arrayBuffer()], {
-					type: `image/${extension === "jpg" ? "jpeg" : extension}`,
-				});
-			} else blob = await api("image", { id: doc.id, href }, { asBlob: true });
+			const blob = await api("image", { id: doc.id, href }, { asBlob: true });
 			if (revision !== renderRevision) return;
 			const url = URL.createObjectURL(blob);
 			blobUrls.push(url);
@@ -717,12 +666,7 @@ async function loadReaderImages(frameDocument, doc, revision) {
 
 async function loadDocumentContent(doc) {
 	if (doc.loaded) return;
-	if (doc.file) {
-		if (doc.file.size > MAX_BYTES)
-			throw new Error("Markdown の上限は 1 MiB です。");
-		doc.source = await doc.file.text();
-		doc.html = (await api("render", { source: doc.source })).html;
-	} else Object.assign(doc, await api("read", { id: doc.id }));
+	Object.assign(doc, await api("read", { id: doc.id }));
 	doc.loaded = true;
 }
 
@@ -760,8 +704,7 @@ function createReaderFrame(doc, revision, { hash, scrollTop }) {
 		const readerDocument = frame.contentDocument;
 		readerDocument.documentElement.dataset.theme = theme;
 		readerDocument.addEventListener("keydown", shortcuts);
-		readerDocument.addEventListener("dragover", handleDragOver);
-		readerDocument.addEventListener("drop", handleDrop);
+		preventFileDrop(readerDocument);
 		if (!showSource) {
 			watchHighlightSelection(readerDocument, doc, revision);
 			buildOutline(readerDocument);
@@ -795,14 +738,11 @@ async function activate(key, { hash, record = true, scrollTop = 0 } = {}) {
 	const revision = ++renderRevision;
 	clearReader();
 	drawNavigation();
-	$("document-path").textContent = doc.path ?? `選択したファイル: ${doc.label}`;
-	$("document-path").title = doc.path ?? doc.label;
-	$("reload").disabled = Boolean(doc.file);
-	$("separate-tab").hidden = Boolean(doc.file);
+	$("document-path").textContent = doc.path;
+	$("document-path").title = doc.path;
+	$("separate-tab").hidden = false;
 	$("separate-tab").href = `/#document=${encodeURIComponent(doc.id)}`;
-	$("reload").title = doc.file
-		? "選択したファイルの更新は、もう一度選択して読み込んでください。"
-		: "ディスクから読み直す";
+	$("reload").title = "コピーから読み直す";
 	document.title = `${doc.name} — Markdown Viewer`;
 	status("読み込み中…");
 	try {
@@ -814,43 +754,11 @@ async function activate(key, { hash, record = true, scrollTop = 0 } = {}) {
 		);
 		if (revision === renderRevision)
 			status(
-				doc.file
-					? "選択時点の内容です。更新後はファイルを選び直してください。"
-					: "本文編集なし · マーカー保存可 · 更新後は「再読み込み」",
+				"コピーを閲覧中 · マーカーはコピーに保存 · 元ファイルは変更しません",
 			);
 	} catch (error) {
 		if (revision === renderRevision) status(error.message, true);
 	}
-}
-
-function importedFileLabel(file) {
-	return file.webkitRelativePath || file.relativePath || file.name;
-}
-
-async function importFiles(files) {
-	const selected = files.filter((file) => /\.(md|markdown)$/i.test(file.name));
-	if (!selected.length)
-		throw new Error("選択した項目に Markdown がありません。");
-	if (selected.some((file) => file.size > MAX_BYTES))
-		throw new Error(
-			"1 MiB を超える Markdown があります。小さい範囲を選択してください。",
-		);
-	if (files.reduce((size, file) => size + file.size, 0) > 50 * MAX_BYTES)
-		throw new Error("選択したファイルの合計上限は 50 MiB です。");
-	const fileMap = new Map(files.map((file) => [importedFileLabel(file), file]));
-	const batch = ++importNumber;
-	const docs = selected
-		.sort((left, right) =>
-			importedFileLabel(left).localeCompare(importedFileLabel(right)),
-		)
-		.map((file, index) => ({
-			id: `import-${batch}-${index}`,
-			name: file.name,
-			label: importedFileLabel(file),
-			file,
-			files: fileMap,
-		}));
-	await addDocuments(docs);
 }
 
 let paletteIndex = 0;
@@ -1004,26 +912,6 @@ document.addEventListener("keydown", (event) => {
 			.find((folder) => folder.dataset.folderKey === focusKey)
 			?.focus();
 });
-$("pick-files").addEventListener("click", () => {
-	$("add-menu").open = false;
-	$("files").click();
-});
-$("pick-folder").addEventListener("click", () => {
-	$("add-menu").open = false;
-	$("folder").click();
-});
-document.addEventListener("click", (event) => {
-	if (!$("add-menu").contains(event.target)) $("add-menu").open = false;
-});
-document.addEventListener("keydown", (event) => {
-	if (event.key === "Escape") $("add-menu").open = false;
-});
-for (const id of ["files", "folder"])
-	$(id).addEventListener("change", (event) => {
-		const files = [...event.target.files];
-		event.target.value = "";
-		if (files.length) runExclusiveAction(() => importFiles(files));
-	});
 $("close-all").addEventListener("click", () => {
 	tabs.clear();
 	showEmpty("すべてのタブを閉じました。ファイル一覧から開き直せます。");
@@ -1076,60 +964,17 @@ $("tabs").addEventListener("keydown", (event) => {
 	document.querySelector('[aria-selected="true"]')?.focus();
 });
 
-async function droppedFiles(items) {
-	const files = [];
-	async function walk(entry, prefix = "", depth = 0) {
-		if (depth > MAX_DIRECTORY_DEPTH)
-			throw new Error("フォルダーの範囲を絞ってください。");
-		if (entry.isFile) {
-			const file = await new Promise((resolve, reject) =>
-				entry.file(resolve, reject),
-			);
-			Object.defineProperty(file, "relativePath", {
-				value: prefix + file.name,
-			});
-			files.push(file);
-		} else if (entry.isDirectory) {
-			const reader = entry.createReader();
-			while (true) {
-				const entries = await new Promise((resolve, reject) =>
-					reader.readEntries(resolve, reject),
-				);
-				if (!entries.length) break;
-				for (const child of entries) {
-					if (![".git", "node_modules"].includes(child.name))
-						await walk(child, `${prefix}${entry.name}/`, depth + 1);
-				}
-			}
-		}
-	}
-	for (const item of items) {
-		if (item.entry?.isDirectory) await walk(item.entry);
-		else if (item.file) files.push(item.file);
-		else if (item.entry) await walk(item.entry);
-	}
-	return files;
+function preventFileDrop(target) {
+	target.addEventListener("dragover", (event) => event.preventDefault());
+	target.addEventListener("drop", (event) => {
+		event.preventDefault();
+		status(
+			"ファイルのドロップは利用できません。pnpm copy-docs でコピーしてください。",
+			true,
+		);
+	});
 }
-function handleDragOver(event) {
-	event.preventDefault();
-	document.body.classList.add("dragging");
-}
-document.addEventListener("dragover", handleDragOver);
-document.addEventListener("dragleave", (event) => {
-	if (!event.relatedTarget) document.body.classList.remove("dragging");
-});
-function handleDrop(event) {
-	event.preventDefault();
-	document.body.classList.remove("dragging");
-	const items = [...event.dataTransfer.items]
-		.filter((item) => item.kind === "file")
-		.map((item) => ({
-			entry: item.webkitGetAsEntry?.(),
-			file: item.getAsFile(),
-		}));
-	runExclusiveAction(async () => importFiles(await droppedFiles(items)));
-}
-document.addEventListener("drop", handleDrop);
+preventFileDrop(document);
 runExclusiveAction(async () => {
 	if (savedView) {
 		await restoreView(savedView);
@@ -1154,5 +999,5 @@ runExclusiveAction(async () => {
 	const data = await api("initial");
 	if (revision !== navigationRevision) return;
 	if (data.documents.length) await addDocuments(data.documents);
-	else status("パス入力・ファイル選択・ドラッグ＆ドロップに対応しています。");
+	else status("pnpm copy-docs で content/ にコピーしてから開いてください。");
 });

@@ -5,3 +5,5 @@ dev.local.json
 .dev-processes.json*
 TEST_REVIEW.md
 !/AGENTS.md
+/content/*
+!/content/.gitkeep

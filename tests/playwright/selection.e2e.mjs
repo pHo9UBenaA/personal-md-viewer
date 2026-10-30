@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
+import { openCopiedMarkdown, test } from "./helpers.mjs";
 
 const markerSource = '<mark data-mdv-color="yellow">marked</mark>';
 const cases = [
@@ -65,12 +66,10 @@ const cases = [
 ];
 
 for (const { name, source, selector, expected } of cases) {
-	test(`sourceRangesForSelection: ${name}`, async ({ page }) => {
-		await page.goto("/");
-		await page.locator("#files").setInputFiles({
+	test(`sourceRangesForSelection: ${name}`, async ({ page, viewer }) => {
+		await openCopiedMarkdown(page, viewer.directory, {
 			name: "selection.md",
-			mimeType: "text/markdown",
-			buffer: Buffer.from(source),
+			source,
 		});
 		await expect(
 			page.frameLocator("#content").locator(selector).first(),
