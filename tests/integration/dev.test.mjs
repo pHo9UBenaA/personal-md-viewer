@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -8,11 +8,10 @@ import { after, before, test } from "node:test";
 import { requestWithExactHost } from "../helpers/http.mjs";
 import { createMockChrome, createTestProject } from "../helpers/project.mjs";
 
-const hasCaddy = spawnSync("caddy", ["version"]).status === 0;
-const devTestOptions = { skip: !hasCaddy, timeout: 20000 };
+const devTestOptions = { timeout: 20000 };
 let project;
 before(async () => {
-	if (hasCaddy) project = await createTestProject();
+	project = await createTestProject();
 });
 after(async () => {
 	if (project) await rm(project, { recursive: true, force: true });
@@ -39,26 +38,18 @@ async function closePortReservation(server) {
 	if (server) await new Promise((resolve) => server.close(resolve));
 }
 
-async function selectTestPorts() {
-	const reservations = await Promise.all([reservePort(), reservePort()]);
-	const [proxyPort, backendPort] = reservations.map(
-		(server) => server.address().port,
-	);
-	await Promise.all(reservations.map(closePortReservation));
-	return { proxyPort, backendPort };
+async function selectTestPort() {
+	const reservation = await reservePort();
+	const port = reservation.address().port;
+	await closePortReservation(reservation);
+	return port;
 }
 
-function launchDev({
-	proxyPort,
-	backendPort,
-	chromePath,
-	openBrowser = false,
-	args = [],
-} = {}) {
-	const env = { ...process.env, VIEWER_APP_PATH: "" };
+function launchDev({ port, chromePath, openBrowser = false, args = [] } = {}) {
+	const env = { ...process.env, VIEWER_APP_PATH: "", VIEWER_ORIGIN: "" };
 	if (chromePath) env.CHROME_PATH = chromePath;
-	if (proxyPort !== undefined) env.DEV_PORT = String(proxyPort);
-	if (backendPort !== undefined) env.DEV_BACKEND_PORT = String(backendPort);
+	if (port !== undefined) env.DEV_PORT = String(port);
+	else delete env.DEV_PORT;
 	const child = spawn(
 		process.execPath,
 		["scripts/dev.mjs", ...(openBrowser ? [] : ["--no-open"]), ...args],
@@ -104,58 +95,96 @@ async function stopDev({ child, exited }) {
 	await exited;
 }
 
-async function assertPortsReleased({ proxyPort, backendPort }) {
-	// Rebinding proves no orphaned proxy or watch process retains either port.
-	for (const port of [proxyPort, backendPort]) {
-		const reservation = await reservePort(port);
-		await closePortReservation(reservation);
-	}
+async function assertPortReleased(port) {
+	// Rebinding proves no orphaned watch process retains the port.
+	const reservation = await reservePort(port);
+	await closePortReservation(reservation);
 }
 
-function requestProxy(port) {
-	return requestWithExactHost(`http://127.0.0.1:${port}`, {
-		headers: { Host: `md.localhost:${port}` },
-	});
+function requestViewer(port) {
+	return requestWithExactHost(`http://127.0.0.1:${port}`);
+}
+
+function readyPort(output) {
+	const port = Number(
+		output.match(/Dev ready: http:\/\/127\.0\.0\.1:(\d+)/)?.[1],
+	);
+	assert.ok(Number.isInteger(port) && port > 0, output);
+	return port;
 }
 
 test(
-	"dev supervises Caddy and the reader and releases both ports on exit",
+	"dev serves the reader directly and releases its port on exit",
 	devTestOptions,
 	async () => {
-		const ports = await selectTestPorts();
-		const dev = launchDev(ports);
+		const port = await selectTestPort();
+		const dev = launchDev({ port });
 		try {
-			await waitForDevReady(dev.child);
-			const response = await requestProxy(ports.proxyPort);
+			assert.equal(readyPort(await waitForDevReady(dev.child)), port);
+			const response = await requestViewer(port);
 			assert.equal(response.status, 200);
 			assert.match(await response.text(), /viewer-token/);
+			for (const headers of [
+				{ Host: `untrusted.example:${port}` },
+				{ Origin: "https://untrusted.example" },
+				{ "Sec-Fetch-Site": "cross-site" },
+			]) {
+				const denied = await requestWithExactHost(`http://127.0.0.1:${port}`, {
+					headers,
+				});
+				assert.equal(denied.status, 403);
+			}
 		} finally {
 			await stopDev(dev);
 		}
-		await assertPortsReleased(ports);
+		await assertPortReleased(port);
 	},
 );
 
 test(
-	"dev selects free ports when both default ports are occupied",
+	"dev selects a free port when its default port is occupied",
 	devTestOptions,
 	async () => {
-		const occupied = await Promise.all([
-			occupyPortIfAvailable(8080),
-			occupyPortIfAvailable(3100),
-		]);
+		const occupied = await occupyPortIfAvailable(8080);
 		const dev = launchDev();
 		try {
-			const output = await waitForDevReady(dev.child);
-			const port = Number(
-				output.match(/Dev ready: http:\/\/md\.localhost:(\d+)/)?.[1],
-			);
-			assert.ok(Number.isInteger(port) && port > 0, output);
-			assert.notEqual(port, 8080, output);
-			assert.equal((await requestProxy(port)).status, 200);
+			const port = readyPort(await waitForDevReady(dev.child));
+			assert.notEqual(port, 8080);
+			assert.equal((await requestViewer(port)).status, 200);
 		} finally {
 			await stopDev(dev);
-			await Promise.all(occupied.map(closePortReservation));
+			await closePortReservation(occupied);
+		}
+	},
+);
+
+test("dev accepts port zero", devTestOptions, async () => {
+	const dev = launchDev({ port: 0 });
+	let port;
+	try {
+		port = readyPort(await waitForDevReady(dev.child));
+		assert.equal((await requestViewer(port)).status, 200);
+	} finally {
+		await stopDev(dev);
+	}
+	await assertPortReleased(port);
+});
+
+test(
+	"dev fails rather than changing an occupied fixed port",
+	devTestOptions,
+	async () => {
+		const reservation = await reservePort();
+		const dev = launchDev({ port: reservation.address().port });
+		try {
+			await assert.rejects(
+				waitForDevReady(dev.child),
+				/Dev exited before readiness/,
+			);
+			assert.equal((await dev.exited)[0], 1);
+		} finally {
+			await stopDev(dev);
+			await closePortReservation(reservation);
 		}
 	},
 );
@@ -164,27 +193,24 @@ test(
 	"dev replaces orphaned children after its previous supervisor is killed",
 	{
 		...devTestOptions,
-		skip: !hasCaddy || process.platform === "win32",
+		skip: process.platform === "win32",
 	},
 	async () => {
-		const ports = await selectTestPorts();
-		const first = launchDev(ports);
+		const port = await selectTestPort();
+		const first = launchDev({ port });
 		let replacement;
 		try {
 			await waitForDevReady(first.child);
 			first.child.kill("SIGKILL");
 			await first.exited;
-			replacement = launchDev(ports);
-			assert.match(
-				await waitForDevReady(replacement.child),
-				new RegExp(`Dev ready: http://md\\.localhost:${ports.proxyPort}\\b`),
-			);
+			replacement = launchDev({ port });
+			assert.equal(readyPort(await waitForDevReady(replacement.child)), port);
 		} finally {
 			if (!first.child.killed) await stopDev(first);
 			if (replacement) await stopDev(replacement);
 			await first.exited;
 		}
-		await assertPortsReleased(ports);
+		await assertPortReleased(port);
 	},
 );
 
@@ -209,25 +235,24 @@ for (const { name, hideNotices, args, expected } of [
 	},
 ]) {
 	test(`dev notice settings: ${name}`, devTestOptions, async () => {
-		const ports = await selectTestPorts();
+		const port = await selectTestPort();
 		const path = "content/configured-notice.md";
 		await writeFile(join(project, path), "# Configured notice");
 		await writeFile(
 			join(project, "dev.local.json"),
 			JSON.stringify({ paths: [path], hideNotices }),
 		);
-		const dev = launchDev({ ...ports, args });
+		const dev = launchDev({ port, args });
 		try {
 			await waitForDevReady(dev.child);
-			const html = await (await requestProxy(ports.proxyPort)).text();
+			const html = await (await requestViewer(port)).text();
 			assert.ok(html.includes(`data-show-notices="${expected}"`));
 			const token = html.match(/name="viewer-token" content="([^"]+)"/)[1];
 			const response = await requestWithExactHost(
-				`http://127.0.0.1:${ports.proxyPort}/api/initial`,
+				`http://127.0.0.1:${port}/api/initial`,
 				{
 					method: "POST",
 					headers: {
-						Host: `md.localhost:${ports.proxyPort}`,
 						"Content-Type": "application/json",
 						"X-Viewer-Token": token,
 					},
@@ -244,7 +269,7 @@ for (const { name, hideNotices, args, expected } of [
 			await rm(join(project, "dev.local.json"), { force: true });
 			await rm(join(project, path), { force: true });
 		}
-		await assertPortsReleased(ports);
+		await assertPortReleased(port);
 	});
 }
 
@@ -259,16 +284,16 @@ async function waitUntil(read, accept) {
 }
 
 test(
-	"dev opens the public app URL once and does not reopen Chrome on watch restarts",
+	"dev opens the direct app URL once and does not reopen Chrome on watch restarts",
 	{
 		...devTestOptions,
-		skip: !hasCaddy || process.platform === "win32",
+		skip: process.platform === "win32",
 	},
 	async () => {
-		const ports = await selectTestPorts();
+		const port = await selectTestPort();
 		const chrome = await createMockChrome(project);
 		const dev = launchDev({
-			...ports,
+			port,
 			openBrowser: true,
 			chromePath: chrome.executable,
 		});
@@ -279,9 +304,9 @@ test(
 				(text) => text.endsWith("\n"),
 			);
 			assert.deepEqual(log.trim().split("\n").map(JSON.parse), [
-				[`--app=http://md.localhost:${ports.proxyPort}`],
+				[`--app=http://127.0.0.1:${port}`],
 			]);
-			const html = await (await requestProxy(ports.proxyPort)).text();
+			const html = await (await requestViewer(port)).text();
 			const token = html.match(/name="viewer-token" content="([^"]+)"/)[1];
 			const theme = join(project, "public/scripts/theme.js");
 			await writeFile(
@@ -291,7 +316,7 @@ test(
 			await waitUntil(
 				async () => {
 					try {
-						return await (await requestProxy(ports.proxyPort)).text();
+						return await (await requestViewer(port)).text();
 					} catch {
 						return "";
 					}
@@ -302,29 +327,29 @@ test(
 		} finally {
 			await stopDev(dev);
 		}
-		await assertPortsReleased(ports);
+		await assertPortReleased(port);
 	},
 );
 
 test(
-	"dev --no-open disables Chrome launch while still starting the proxy",
+	"dev --no-open disables Chrome launch while still starting the reader",
 	{
 		...devTestOptions,
-		skip: !hasCaddy || process.platform === "win32",
+		skip: process.platform === "win32",
 	},
 	async () => {
-		const ports = await selectTestPorts();
+		const port = await selectTestPort();
 		const chrome = await createMockChrome(project);
 		await rm(chrome.log, { force: true });
-		const dev = launchDev({ ...ports, chromePath: chrome.executable });
+		const dev = launchDev({ port, chromePath: chrome.executable });
 		try {
 			await waitForDevReady(dev.child);
-			assert.equal((await requestProxy(ports.proxyPort)).status, 200);
+			assert.equal((await requestViewer(port)).status, 200);
 			await new Promise((resolve) => setTimeout(resolve, 200));
 			await assert.rejects(readFile(chrome.log), { code: "ENOENT" });
 		} finally {
 			await stopDev(dev);
 		}
-		await assertPortsReleased(ports);
+		await assertPortReleased(port);
 	},
 );

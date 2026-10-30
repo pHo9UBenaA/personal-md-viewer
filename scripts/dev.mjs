@@ -25,7 +25,6 @@ const args = process.argv
 const commandPatternByKind = {
 	supervisor: /(?:^|\/)node(?:\s|$).*\bscripts\/dev\.mjs(?:\s|$)/,
 	viewer: /(?:^|\/)node(?:\s|$).*--watch.*\bsrc\/index\.mjs(?:\s|$)/,
-	proxy: /(?:^|\/)caddy run --config - --adapter caddyfile$/,
 };
 
 // Verify command and working directory before signalling a PID that may be reused.
@@ -79,9 +78,7 @@ async function stopPrevious() {
 		{ pid: state.pid, kind: "supervisor" },
 		...state.children.filter(
 			(child) =>
-				child &&
-				Number.isInteger(child.pid) &&
-				["viewer", "proxy"].includes(child.kind),
+				child && Number.isInteger(child.pid) && child.kind === "viewer",
 		),
 	];
 	for (const recordedProcess of processes)
@@ -111,16 +108,13 @@ function probePort(port) {
 		});
 	});
 }
-async function selectAvailablePort(preferredPort, excludedPort) {
-	let port;
+async function selectAvailablePort(preferredPort) {
 	try {
-		port = await probePort(preferredPort);
+		return await probePort(preferredPort);
 	} catch (error) {
 		if (!["EADDRINUSE", "EPERM"].includes(error.code)) throw error;
-		port = await probePort(0);
+		return probePort(0);
 	}
-	while (port === excludedPort) port = await probePort(0);
-	return port;
 }
 async function loadViewerArgs() {
 	const explicitPaths = args.filter(
@@ -164,15 +158,19 @@ async function loadViewerArgs() {
 		...(explicitPaths.length === 0 ? config.paths : []),
 	];
 }
-async function selectDevPort(configuredValue, preferredPort, excludedPort) {
-	if (configuredValue === undefined)
-		return selectAvailablePort(preferredPort, excludedPort);
+async function selectDevPort(configuredValue) {
+	if (configuredValue === undefined) return selectAvailablePort(8080);
 	const requestedPort = Number(configuredValue);
-	if (requestedPort === 0) return selectAvailablePort(0, excludedPort);
-	return requestedPort;
+	if (
+		!Number.isInteger(requestedPort) ||
+		requestedPort < 0 ||
+		requestedPort > 65535
+	)
+		throw new Error("DEV_PORT は 0〜65535 の整数にしてください。");
+	return requestedPort === 0 ? probePort(0) : requestedPort;
 }
 
-// Signal the whole watch/proxy group so descendants do not retain ports.
+// Signal the whole watch group so descendants do not retain the port.
 function signalChildGroup(child, signal = "SIGTERM") {
 	try {
 		if (process.platform === "win32") child.kill(signal);
@@ -184,11 +182,10 @@ function signalChildGroup(child, signal = "SIGTERM") {
 
 if (args.includes("--help") || args.includes("-h")) {
 	console.log(
-		"Usage: pnpm dev [--no-open] [--no-notices] [--recursive] [--allow-html] [file.md | directory ...]\n--allow-html renders raw HTML in trusted Markdown. Uses ports 8080 and 3100 when available; otherwise selects free ports. DEV_PORT and DEV_BACKEND_PORT override them.\nStarts Caddy and a watched reader on loopback without sudo. Ctrl+C stops both. Once the proxy is ready, opens the installed macOS Markdown Viewer app for this URL, or falls back to Chrome app mode. --no-open disables browser launch; --no-notices hides the shortcut and copied-document notices, not errors or operation results. CHROME_PATH bypasses app discovery; VIEWER_APP_PATH explicitly selects a matching macOS .app.",
+		"Usage: pnpm dev [--no-open] [--no-notices] [--recursive] [--allow-html] [file.md | directory ...]\n--allow-html renders raw HTML in trusted Markdown. Uses port 8080 when available; otherwise selects a free port. DEV_PORT overrides it.\nStarts a watched reader on 127.0.0.1 without sudo. Ctrl+C stops it. Once the reader is ready, opens the installed macOS Markdown Viewer app for this URL, or falls back to Chrome app mode. --no-open disables browser launch; --no-notices hides the shortcut and copied-document notices, not errors or operation results. CHROME_PATH bypasses app discovery; VIEWER_APP_PATH explicitly selects a matching macOS .app.",
 	);
 } else {
 	const children = new Set();
-	const childKinds = new Map();
 	let stopping = false;
 	let startupTimer;
 	let browserOpened = false;
@@ -200,7 +197,7 @@ if (args.includes("--help") || args.includes("-h")) {
 				pid: process.pid,
 				children: [...children]
 					.filter((child) => child.pid)
-					.map((child) => ({ pid: child.pid, kind: childKinds.get(child) })),
+					.map((child) => ({ pid: child.pid, kind: "viewer" })),
 			}),
 		);
 		renameSync(temporary, statePath);
@@ -233,19 +230,13 @@ if (args.includes("--help") || args.includes("-h")) {
 			...options,
 		});
 		children.add(child);
-		childKinds.set(child, command === "caddy" ? "proxy" : "viewer");
 		writeState();
 		child.on("error", (error) => {
-			console.error(
-				error.code === "ENOENT"
-					? `${command} が見つかりません。Caddy は brew install caddy で導入できます。`
-					: error.message,
-			);
+			console.error(error.message);
 			stop(1);
 		});
 		child.on("close", (code) => {
 			children.delete(child);
-			childKinds.delete(child);
 			if (stopping) {
 				if (children.size === 0) releaseState();
 				return;
@@ -278,35 +269,8 @@ if (args.includes("--help") || args.includes("-h")) {
 	try {
 		await stopPrevious();
 		const viewerArgs = await loadViewerArgs();
-		const configuredPort = process.env.DEV_PORT;
-		const configuredBackend = process.env.DEV_BACKEND_PORT;
-		const requestedPort = Number(configuredPort ?? 8080);
-		const requestedBackend = Number(configuredBackend ?? 3100);
-		if (
-			[requestedPort, requestedBackend].some(
-				(value) => !Number.isInteger(value) || value < 0 || value > 65535,
-			) ||
-			(configuredPort !== undefined &&
-				configuredBackend !== undefined &&
-				requestedPort !== 0 &&
-				requestedPort === requestedBackend)
-		)
-			throw new Error(
-				"DEV_PORT と DEV_BACKEND_PORT には 0〜65535 の整数を指定し、固定ポートは異なる番号にしてください。0 を指定すると空きポートを選びます。",
-			);
-		const port = await selectDevPort(configuredPort, requestedPort);
-		const backend = await selectDevPort(
-			configuredBackend,
-			requestedBackend,
-			port,
-		);
-		if (port === backend)
-			throw new Error(
-				"DEV_PORT と DEV_BACKEND_PORT は異なるポートにしてください。",
-			);
+		const port = await selectDevPort(process.env.DEV_PORT);
 		writeState();
-		const origin = `http://md.localhost${port === 80 ? "" : `:${port}`}`;
-		let proxy;
 		startupTimer = setTimeout(() => {
 			console.error(
 				"開発サーバーの起動がタイムアウトしました。ポートとログを確認してください。",
@@ -325,54 +289,27 @@ if (args.includes("--help") || args.includes("-h")) {
 				...viewerArgs,
 			],
 			{
-				env: { ...process.env, PORT: String(backend), VIEWER_ORIGIN: origin },
+				env: { ...process.env, PORT: String(port) },
 			},
 		);
 		app.stdin.end();
 		app.stderr.pipe(process.stderr);
 		onOutputLine(app.stdout, (line) => {
-			if (!line.startsWith("Markdown viewer:") || proxy || stopping) {
-				if (line) console.log(line);
-				return;
-			}
-			proxy = launch("caddy", [
-				"run",
-				"--config",
-				"-",
-				"--adapter",
-				"caddyfile",
-			]);
-			proxy.stdin.on("error", () => {
-				/* Spawn errors are reported by launch. */
-			});
-			proxy.stdin.end(
-				`{\n admin off\n persist_config off\n auto_https off\n}\n${origin} {\n bind 127.0.0.1\n reverse_proxy 127.0.0.1:${backend}\n}\n`,
+			if (line) console.log(line);
+			if (!line.startsWith("Markdown viewer: ") || stopping) return;
+			clearTimeout(startupTimer);
+			const url = line.slice("Markdown viewer: ".length);
+			console.log(
+				`Dev ready: ${url}\nソース変更で再起動します。画面全体の再読み込み: ⌘⇧R / Ctrl+Shift+R。終了: Ctrl+C`,
 			);
-			proxy.stdout.pipe(process.stdout);
-			onOutputLine(proxy.stderr, (message) => {
-				let entry;
-				try {
-					entry = JSON.parse(message);
-				} catch {
-					console.error(message);
-					return;
-				}
-				if (entry.msg === "serving initial configuration") {
-					clearTimeout(startupTimer);
-					console.log(
-						`Dev ready: ${origin}\nソース変更で再起動します。画面全体の再読み込み: ⌘⇧R / Ctrl+Shift+R。終了: Ctrl+C`,
-					);
-					if (openBrowser && !browserOpened && !stopping) {
-						browserOpened = true;
-						void openChromeApp(origin).catch((error) =>
-							console.error(
-								`Chrome の自動起動に失敗しました。${error.message}\nURL: ${origin}`,
-							),
-						);
-					}
-				} else if (entry.level === "error" || entry.level === "fatal")
-					console.error(message);
-			});
+			if (openBrowser && !browserOpened) {
+				browserOpened = true;
+				void openChromeApp(url).catch((error) =>
+					console.error(
+						`Chrome の自動起動に失敗しました。${error.message}\nURL: ${url}`,
+					),
+				);
+			}
 		});
 	} catch (error) {
 		console.error(error.message);
