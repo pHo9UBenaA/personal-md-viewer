@@ -1,6 +1,8 @@
 @import url("/theme.css");
 
 :root {
+	--control-font-size: 13px;
+	--control-height: 28px;
 	font: 16px / 1.4 var(--ui-font);
 	color: var(--text);
 	background: var(--page);
@@ -17,6 +19,7 @@ body {
 button,
 input {
 	font: inherit;
+	font-size: var(--control-font-size);
 }
 button,
 a,
@@ -24,7 +27,7 @@ input {
 	outline-offset: 2px;
 }
 button {
-	min-height: 30px;
+	min-height: var(--control-height);
 	padding: 3px 8px;
 	line-height: 1.25;
 	color: inherit;
@@ -44,7 +47,7 @@ input[type="text"],
 input[type="search"] {
 	width: 100%;
 	min-width: 0;
-	height: 30px;
+	height: var(--control-height);
 	padding: 3px 8px;
 	line-height: 1.25;
 	color: inherit;
@@ -62,7 +65,7 @@ a {
 }
 kbd {
 	margin-left: 8px;
-	font: 12px var(--ui-font);
+	font: var(--control-font-size) var(--ui-font);
 	color: var(--muted);
 }
 .toolbar {
@@ -98,9 +101,9 @@ kbd {
 	flex-shrink: 0;
 	align-items: center;
 	justify-content: center;
-	width: 30px;
-	height: 30px;
-	padding: 5px;
+	width: var(--control-height);
+	height: var(--control-height);
+	padding: 4px;
 }
 .theme-icon,
 .sidebar-icon,
@@ -185,7 +188,6 @@ body.resizing-sidebar {
 .sidebar-heading button {
 	min-height: 24px;
 	padding: 2px 5px;
-	font-size: 12px;
 	background: none;
 }
 .filter-row {
@@ -196,7 +198,6 @@ body.resizing-sidebar {
 }
 .filter-row button {
 	padding-inline: 6px;
-	font-size: 13px;
 	white-space: nowrap;
 }
 .filter-count {
@@ -229,12 +230,12 @@ body.resizing-sidebar {
 #outline button {
 	display: block;
 	width: 100%;
-	min-height: 26px;
+	min-height: 24px;
 	padding: 2px 6px;
 	overflow: hidden;
 	text-overflow: ellipsis;
-	font-size: 16px;
-	line-height: 22px;
+	font-size: var(--control-font-size);
+	line-height: 20px;
 	text-align: left;
 	white-space: nowrap;
 	background: none;
@@ -301,7 +302,6 @@ body.resizing-sidebar {
 }
 #outline button {
 	padding-left: 6px;
-	font-size: 14px;
 	color: var(--muted);
 }
 main {
@@ -326,7 +326,6 @@ main {
 }
 .tab button {
 	padding: 5px 10px;
-	font-size: 16px;
 	white-space: nowrap;
 	background: none;
 	border: 0;
@@ -383,7 +382,6 @@ main {
 }
 .tab-menu button {
 	padding: 3px 8px;
-	font-size: 14px;
 	text-align: left;
 	background: none;
 	border: 0;
@@ -417,7 +415,7 @@ form {
 	margin-top: 14px;
 }
 form > label {
-	font-size: 14px;
+	font-size: var(--control-font-size);
 }
 .path-row {
 	display: flex;
@@ -434,7 +432,7 @@ form > label {
 	gap: 6px;
 	align-items: center;
 	margin-top: 10px;
-	font-size: 14px;
+	font-size: var(--control-font-size);
 }
 .check input {
 	width: 15px;
@@ -475,9 +473,8 @@ form > label {
 	white-space: nowrap;
 }
 .document-bar button {
-	min-height: 28px;
+	min-height: var(--control-height);
 	padding: 3px 6px;
-	font-size: 13px;
 	white-space: nowrap;
 }
 .find-bar {
@@ -500,15 +497,15 @@ form > label {
 .find-count {
 	flex-shrink: 0;
 	min-width: 48px;
-	font-size: 13px;
+	font-size: var(--control-font-size);
 	font-variant-numeric: tabular-nums;
 	color: var(--muted);
 	text-align: center;
 }
 .find-bar button {
 	flex-shrink: 0;
-	width: 28px;
-	min-height: 28px;
+	width: var(--control-height);
+	min-height: var(--control-height);
 	padding: 2px;
 }
 .highlight-toolbar {
@@ -582,7 +579,6 @@ form > label {
 }
 .highlight-toolbar .highlight-remove {
 	--highlight-color: transparent;
-	font-size: 19px;
 	line-height: 20px;
 	color: var(--text);
 	background: transparent;
@@ -639,7 +635,6 @@ body.focus-mode .document-bar > :not(#focus-toggle) {
 }
 body.focus-mode #focus-toggle {
 	padding: 5px 8px;
-	font-size: 13px;
 	background: transparent;
 	border: 0;
 }
@@ -697,9 +692,8 @@ dialog::backdrop {
 	font-weight: 600;
 }
 .palette-heading button {
-	min-width: 30px;
+	min-width: var(--control-height);
 	padding: 3px 6px;
-	font-size: 13px;
 }
 #results {
 	display: grid;
@@ -710,11 +704,10 @@ dialog::backdrop {
 	display: none;
 }
 #results button {
-	min-height: 28px;
+	min-height: var(--control-height);
 	padding: 3px 6px;
 	overflow: hidden;
 	text-overflow: ellipsis;
-	font-size: 14px;
 	text-align: left;
 	white-space: nowrap;
 	background: transparent;
@@ -764,7 +757,6 @@ dialog::backdrop {
 	}
 	.search-action {
 		padding-inline: 6px;
-		font-size: 14px;
 	}
 	#empty {
 		padding: 20px;
@@ -777,7 +769,6 @@ dialog::backdrop {
 	}
 	.document-bar button {
 		padding-inline: 4px;
-		font-size: 12px;
 	}
 	.shortcut-notice {
 		padding: 3px 8px;

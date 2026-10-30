@@ -426,7 +426,7 @@ test("palette keyboard search opens the matching document and ignores blank quer
 	).toBeGreaterThanOrEqual(600);
 	const commandBox = await page.locator("#command").boundingBox();
 	expect(commandBox.width).toBeGreaterThan(450);
-	expect(commandBox.height).toBe(30);
+	expect(commandBox.height).toBe(28);
 	await page.locator("#command").fill("B.markdown");
 	await expect(page.locator("#results button")).toHaveCount(1);
 	await page.locator("#command").press("Enter");

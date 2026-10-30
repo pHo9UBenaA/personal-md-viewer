@@ -123,7 +123,7 @@ CHROME_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" pnpm 
 
 ### 配色と入力欄
 
-ダーク表示は Gruvbox Dark Hard を基準にし、ライト表示は同系統の明色にする。Zed の設定変更には自動追従しない。UI は 16px、Raw・コードは 15px。Zed に同梱される IBM Plex Sans と Lilex をローカル配信し、日本語は OS のフォントで補う。アイコンもローカルの SVG で、CDN は使わない。入力欄は高さ 30px とし、狭いサイドバーでは検索ボタンを次の行へ移す。
+ダーク表示は Gruvbox Dark Hard を基準にし、ライト表示は同系統の明色にする。Zed の設定変更には自動追従しない。タブ名・ボタン・ツリー・入力欄は 13px に統一する。本文のサイズは変えず、Preview は 16px（狭い画面は 15px）、Raw・コードは 15px。Zed に同梱される IBM Plex Sans と Lilex をローカル配信し、日本語は OS のフォントで補う。アイコンもローカルの SVG で、CDN は使わない。入力欄は「再読み込み」ボタンと同じ高さ 28px とし、狭いサイドバーでは検索ボタンを次の行へ移す。
 
 ### 本文内を検索する
 
