@@ -1,6 +1,6 @@
 # Bundled fonts
 
-[BIZ UDGothic and BIZ UDPGothic](https://github.com/googlefonts/morisawa-biz-ud-gothic) are Japanese and Latin typefaces from Morisawa, distributed under the SIL Open Font License 1.1. See `BIZ-UD-OFL.txt` for the copyright notice and license.
+[BIZ UDGothic and BIZ UDPGothic](https://github.com/googlefonts/morisawa-biz-ud-gothic) are Japanese and Latin typefaces from Morisawa, distributed under the SIL Open Font License 1.1. See [BIZ-UD-OFL.txt](BIZ-UD-OFL.txt) for the copyright notice and license.
 
 - UI and Preview text: BIZ UDPGothic Regular (400) and Bold (700), with proportional spacing.
 - Raw and code: BIZ UDGothic Regular (400) and Bold (700), with fixed-width spacing; Japanese full-width characters occupy twice the advance of Latin half-width characters.
