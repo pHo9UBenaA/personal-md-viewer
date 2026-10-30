@@ -182,6 +182,7 @@ test("browser modules are served only at their registered asset routes", async (
 		"selection.js",
 		"sidebar.js",
 		"tabs.js",
+		"reader-search.js",
 	]) {
 		const response = await fetch(`${base}/${file}`);
 		assert.equal(response.status, 200, file);
@@ -206,7 +207,16 @@ test("shortcut help is served without API tokens or the Viewer event handlers", 
 });
 
 test("only the fixed UI icons are served as SVG", async () => {
-	for (const icon of ["sun", "moon"]) {
+	for (const icon of [
+		"sun",
+		"moon",
+		"folder",
+		"folder-open",
+		"markdown",
+		"chevron-right",
+		"sidebar",
+		"restore",
+	]) {
 		const response = await fetch(`${base}/icons/${icon}.svg`);
 		assert.equal(response.status, 200);
 		assert.equal(response.headers.get("content-type"), "image/svg+xml");
@@ -216,6 +226,24 @@ test("only the fixed UI icons are served as SVG", async () => {
 	}
 	for (const route of ["/icons/arbitrary.svg", "/public/icons/sun.svg"])
 		assert.equal((await fetch(base + route)).status, 404);
+});
+
+test("bundled fonts retain their binary bytes and include licenses", async () => {
+	for (const name of ["IBMPlexSans-Regular.ttf", "Lilex-Regular.ttf"]) {
+		const response = await fetch(`${base}/fonts/${name}`);
+		assert.equal(response.status, 200);
+		assert.equal(response.headers.get("content-type"), "font/ttf");
+		assert.deepEqual(
+			Buffer.from(await response.arrayBuffer()),
+			await readFile(new URL(`../public/fonts/${name}`, import.meta.url)),
+		);
+	}
+	for (const name of ["IBM-Plex-OFL.txt", "Lilex-OFL.txt"])
+		assert.match(
+			await (await fetch(`${base}/fonts/${name}`)).text(),
+			/SIL OPEN FONT LICENSE Version 1.1/,
+		);
+	assert.equal((await fetch(`${base}/fonts/arbitrary.ttf`)).status, 404);
 });
 
 test("relative Markdown links and images remain within the selected root", async () => {

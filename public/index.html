@@ -11,10 +11,18 @@
 </head>
 <body>
   <header class="toolbar">
+    <button id="sidebar-toggle" class="icon-button" type="button" aria-controls="sidebar"
+      aria-expanded="true" aria-label="サイドバーを隠す" title="サイドバー (⌘B / Ctrl+B)">
+      <span class="sidebar-icon" aria-hidden="true"></span>
+    </button>
     <a class="brand" href="/">Markdown <span>Viewer</span></a>
     <div class="toolbar-actions">
       <button id="palette-open" class="search-action" type="button">
         コマンドパレット <kbd>⌘⇧P</kbd>
+      </button>
+      <button id="reopen-closed" class="icon-button" type="button" disabled
+        aria-label="閉じたタブを復元" title="閉じたタブを復元 (⌘⇧T / Ctrl+Shift+T)">
+        <span class="restore-icon" aria-hidden="true"></span>
       </button>
       <button id="theme-toggle" class="theme-action" type="button"
         aria-label="ダークモードに切り替える" title="ダークモードに切り替える">
@@ -72,6 +80,14 @@
           <button id="source-toggle" type="button">Raw</button>
           <button id="focus-toggle" type="button" aria-pressed="false"
             title="全画面表示 (⌘⇧F / Ctrl+Shift+F)">全画面表示</button>
+        </div>
+        <div id="find-bar" class="find-bar" role="search" aria-label="本文内検索" hidden>
+          <label class="sr-only" for="find-query">本文を検索</label>
+          <input id="find-query" type="search" placeholder="本文を検索" autocomplete="off" spellcheck="false">
+          <span id="find-count" class="find-count" aria-live="polite">0 / 0</span>
+          <button id="find-previous" type="button" aria-label="前の一致" title="前の一致 (⌘⇧G / Shift+Enter)" disabled>↑</button>
+          <button id="find-next" type="button" aria-label="次の一致" title="次の一致 (⌘G / Enter)" disabled>↓</button>
+          <button id="find-close" type="button" aria-label="本文検索を閉じる" title="閉じる (Esc)">×</button>
         </div>
         <div id="highlight-toolbar" class="highlight-toolbar" role="toolbar"
           aria-label="マーカーの色" hidden>

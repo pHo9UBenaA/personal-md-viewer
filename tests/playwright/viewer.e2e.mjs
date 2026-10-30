@@ -423,10 +423,10 @@ test("palette keyboard search opens the matching document and ignores blank quer
 		await page
 			.locator("#palette")
 			.evaluate((element) => element.getBoundingClientRect().width),
-	).toBeGreaterThan(700);
+	).toBeGreaterThanOrEqual(600);
 	const commandBox = await page.locator("#command").boundingBox();
-	expect(commandBox.width).toBeGreaterThan(500);
-	expect(commandBox.height).toBeGreaterThanOrEqual(48);
+	expect(commandBox.width).toBeGreaterThan(450);
+	expect(commandBox.height).toBe(30);
 	await page.locator("#command").fill("B.markdown");
 	await expect(page.locator("#results button")).toHaveCount(1);
 	await page.locator("#command").press("Enter");

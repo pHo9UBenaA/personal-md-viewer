@@ -23,10 +23,15 @@ async function openLongTabs(page, viewer) {
 	await expect(page.frameLocator("#content").locator("h1")).toHaveText("A");
 }
 
-const scrollTo = (page, y) =>
-	page
+async function scrollTo(page, y) {
+	await expect(page.frameLocator("#content").locator("body")).toHaveAttribute(
+		"tabindex",
+		"-1",
+	);
+	await page
 		.locator("#content")
 		.evaluate((frame, y) => frame.contentWindow.scrollTo(0, y), y);
+}
 const scrollY = (page) =>
 	page.locator("#content").evaluate((frame) => frame.contentWindow.scrollY);
 async function expectReaderFocus(page) {

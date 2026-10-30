@@ -1,34 +1,50 @@
+@font-face {
+	font-family: "Viewer Sans";
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url("/fonts/IBMPlexSans-Regular.ttf") format("truetype");
+}
+@font-face {
+	font-family: "Viewer Mono";
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url("/fonts/Lilex-Regular.ttf") format("truetype");
+}
 :root {
-	--page: #171817;
-	--surface: #1c1e1c;
-	--text: #e7e5e4;
-	--muted: #aab8ae;
-	--border: #424742;
-	--button: #292c29;
-	--hover: #363d37;
-	--input: #141614;
-	--selected: #293a30;
-	--accent: #a1d7b5;
-	--action: #355b43;
-	--dialog: #202520;
-	--code: #121512;
-	--error: #ffb6a3;
+	--ui-font: "Viewer Sans", "Hiragino Sans", system-ui, sans-serif;
+	--mono-font: "Viewer Mono", "SFMono-Regular", Consolas, monospace;
+	--page: #282828;
+	--surface: #1d2021;
+	--text: #ebdbb2;
+	--muted: #a89984;
+	--border: #3c3836;
+	--button: #32302f;
+	--hover: #3c3836;
+	--input: #1d2021;
+	--selected: #504945;
+	--accent: #83a598;
+	--action: #3c4841;
+	--dialog: #282828;
+	--code: #282828;
+	--error: #fb4934;
 	color-scheme: dark;
 }
 :root[data-theme="light"] {
-	--page: #f5f6f2;
-	--surface: #ffffff;
-	--text: #242b25;
-	--muted: #526056;
-	--border: #c8d0c8;
-	--button: #e9ede6;
-	--hover: #dce5d9;
-	--input: #ffffff;
-	--selected: #dcebdc;
-	--accent: #21633e;
-	--action: #d4e7d5;
-	--dialog: #ffffff;
-	--code: #eef1eb;
-	--error: #a02d1d;
+	--page: #f2e5bc;
+	--surface: #fbf1c7;
+	--text: #3c3836;
+	--muted: #665c54;
+	--border: #d5c4a1;
+	--button: #ebdbb2;
+	--hover: #e5d5ad;
+	--input: #fbf1c7;
+	--selected: #d5c4a1;
+	--accent: #427b58;
+	--action: #dfe2bd;
+	--dialog: #fbf1c7;
+	--code: #f2e5bc;
+	--error: #9d0006;
 	color-scheme: light;
 }

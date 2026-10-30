@@ -8,6 +8,7 @@ const assets = new Map([
 	["/", ["index.html", "text/html; charset=utf-8"]],
 	["/app.js", ["app.js", "text/javascript; charset=utf-8"]],
 	["/tabs.js", ["tabs.js", "text/javascript; charset=utf-8"]],
+	["/reader-search.js", ["reader-search.js", "text/javascript; charset=utf-8"]],
 	["/shortcuts", ["shortcuts.html", "text/html; charset=utf-8"]],
 	["/documents.js", ["documents.js", "text/javascript; charset=utf-8"]],
 	["/selection.js", ["selection.js", "text/javascript; charset=utf-8"]],
@@ -18,9 +19,28 @@ const assets = new Map([
 	["/reader.css", ["reader.css", "text/css; charset=utf-8"]],
 	["/icons/sun.svg", ["icons/sun.svg", "image/svg+xml"]],
 	["/icons/moon.svg", ["icons/moon.svg", "image/svg+xml"]],
+	["/icons/folder.svg", ["icons/folder.svg", "image/svg+xml"]],
+	["/icons/folder-open.svg", ["icons/folder-open.svg", "image/svg+xml"]],
+	["/icons/markdown.svg", ["icons/markdown.svg", "image/svg+xml"]],
+	["/icons/chevron-right.svg", ["icons/chevron-right.svg", "image/svg+xml"]],
+	["/icons/sidebar.svg", ["icons/sidebar.svg", "image/svg+xml"]],
+	["/icons/restore.svg", ["icons/restore.svg", "image/svg+xml"]],
+	[
+		"/fonts/IBMPlexSans-Regular.ttf",
+		["fonts/IBMPlexSans-Regular.ttf", "font/ttf"],
+	],
+	["/fonts/Lilex-Regular.ttf", ["fonts/Lilex-Regular.ttf", "font/ttf"]],
+	[
+		"/fonts/IBM-Plex-OFL.txt",
+		["fonts/IBM-Plex-OFL.txt", "text/plain; charset=utf-8"],
+	],
+	[
+		"/fonts/Lilex-OFL.txt",
+		["fonts/Lilex-OFL.txt", "text/plain; charset=utf-8"],
+	],
 ]);
 const contentSecurityPolicy =
-	"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+	"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; font-src 'self'; connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 const withoutHighlights = (html) =>
 	html
@@ -116,18 +136,16 @@ export async function createViewerServer({
 	const expectedTokenBytes = Buffer.from(token);
 	const staticFiles = new Map(
 		await Promise.all(
-			[...assets].map(async ([route, [file, type]]) => [
-				route,
-				{
-					type,
-					data: (
-						await readFile(
-							new URL(`../public/${file}`, import.meta.url),
-							"utf8",
-						)
-					).replace("__TOKEN__", token),
-				},
-			]),
+			[...assets].map(async ([route, [file, type]]) => {
+				const bytes = await readFile(
+					new URL(`../public/${file}`, import.meta.url),
+				);
+				const data =
+					file === "index.html"
+						? bytes.toString("utf8").replace("__TOKEN__", token)
+						: bytes;
+				return [route, { type, data }];
+			}),
 		),
 	);
 

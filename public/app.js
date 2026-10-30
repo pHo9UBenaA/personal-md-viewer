@@ -3,6 +3,7 @@ import {
 	findDocuments,
 	treeFromDocuments,
 } from "./documents.js";
+import { initializeReaderSearch } from "./reader-search.js";
 import { mapSourceText, sourceRangesForSelection } from "./selection.js";
 import { initializeSidebarResize } from "./sidebar.js";
 import { initializeTabs } from "./tabs.js";
@@ -38,6 +39,8 @@ const MAX_PALETTE_MATCHES = 20;
 const BULK_OPEN_CONFIRM_COUNT = 50;
 let filteredKeys = [];
 let pendingOpenKeys = null;
+const closedBatches = [];
+const MAX_CLOSED_BATCHES = 20;
 
 const workspace = document.querySelector(".workspace");
 initializeSidebarResize({
@@ -56,6 +59,16 @@ const tabController = initializeTabs({
 	reorderTabs,
 	reloadTab: (key) => runExclusiveAction(() => reloadTab(key)),
 	status,
+});
+
+const readerSearch = initializeReaderSearch({
+	bar: $("find-bar"),
+	input: $("find-query"),
+	counter: $("find-count"),
+	previous: $("find-previous"),
+	next: $("find-next"),
+	close: $("find-close"),
+	focusReader: focusReaderContent,
 });
 
 let theme = document.documentElement.dataset.theme;
@@ -242,6 +255,7 @@ function drawTreeBranch(
 
 function drawNavigation() {
 	$("count").textContent = String(availableDocuments.size);
+	$("reopen-closed").disabled = closedBatches.length === 0;
 	workspace.dataset.hasDocuments = String(availableDocuments.size > 0);
 	tabController.draw();
 	$("file-list").replaceChildren();
@@ -324,8 +338,40 @@ function focusReaderContent() {
 	$("content").contentDocument.body.focus({ preventScroll: true });
 }
 
+function setSidebarVisible(visible) {
+	document.body.classList.toggle("sidebar-hidden", !visible);
+	$("sidebar-toggle").setAttribute("aria-expanded", String(visible));
+	$("sidebar-toggle").setAttribute(
+		"aria-label",
+		visible ? "サイドバーを隠す" : "サイドバーを表示する",
+	);
+	if (
+		!visible &&
+		($("sidebar").contains(document.activeElement) ||
+			document.activeElement === $("sidebar-resizer"))
+	) {
+		if (active) focusReaderContent();
+		else $("palette-open").focus();
+	}
+}
+
+function toggleSidebar() {
+	if (document.body.classList.contains("focus-mode")) {
+		setFocusMode(false);
+		setSidebarVisible(true);
+	} else setSidebarVisible(document.body.classList.contains("sidebar-hidden"));
+}
+
+function toggleSource({ focusReader = false } = {}) {
+	showSource = !showSource;
+	$("source-toggle").textContent = showSource ? "Preview" : "Raw";
+	if (active)
+		void activate(active, { preserveTabSelection: true, focusReader });
+}
+
 function focusTreeFilter() {
 	readerFocusRevision = null;
+	setSidebarVisible(true);
 	tabController.closeMenu();
 	setFocusMode(false);
 	$("filter").focus();
@@ -344,6 +390,7 @@ function cycleTab(direction) {
 }
 
 function clearReader() {
+	readerSearch.clearDocument();
 	rememberReaderPosition();
 	displayedView = null;
 	readerFocusRevision = null;
@@ -469,6 +516,7 @@ function watchHighlightSelection(frameDocument, doc, revision) {
 		selection.addRange(range);
 		update();
 	});
+	update();
 }
 
 async function applyHighlight(color) {
@@ -512,6 +560,17 @@ function closeTabs(closingKeys) {
 	if (!closing.size) return;
 	const focusWasInTabs = $("tabs").contains(document.activeElement);
 	const index = keys.indexOf(active);
+	const closedDocuments = [];
+	for (const [index, key] of keys.entries()) {
+		if (!closing.has(key)) continue;
+		const doc = tabs.get(key);
+		closedDocuments.push({ path: doc.path, root: doc.root, index });
+	}
+	closedBatches.push({
+		active: closing.has(active) ? active : [...closing][0],
+		documents: closedDocuments,
+	});
+	if (closedBatches.length > MAX_CLOSED_BATCHES) closedBatches.shift();
 	for (const key of closing) {
 		tabs.delete(key);
 		readerPositions.delete(key);
@@ -536,6 +595,62 @@ function closeTabs(closingKeys) {
 	if (focusWasInTabs) document.querySelector('[aria-selected="true"]')?.focus();
 }
 
+async function reopenClosedTabs() {
+	const batch = closedBatches.at(-1);
+	if (!batch) {
+		status("復元できるタブはありません。");
+		return;
+	}
+	const revision = navigationRevision;
+	const restored = [];
+	let failure = "";
+	for (const saved of batch.documents) {
+		if (tabs.has(saved.path)) continue;
+		try {
+			// Always revalidate the copy and saved link scope, even if metadata is cached.
+			const { document: doc } = await api("restore", {
+				path: saved.path,
+				root: saved.root,
+			});
+			if (revision !== navigationRevision) return;
+			restored.push({ doc, index: saved.index });
+		} catch (error) {
+			if (revision !== navigationRevision) return;
+			failure ||= error.message;
+		}
+	}
+	const batchIndex = closedBatches.indexOf(batch);
+	if (batchIndex >= 0) closedBatches.splice(batchIndex, 1);
+	$("reopen-closed").disabled = closedBatches.length === 0;
+	if (!restored.length) {
+		status(
+			failure
+				? `タブを復元できませんでした。${failure}`
+				: "閉じたタブはすでに開いています。",
+			Boolean(failure),
+		);
+		return;
+	}
+	const entries = [...tabs.entries()];
+	for (const { doc, index } of restored) {
+		const key = keyFor(doc);
+		const current = availableDocuments.get(key) ?? doc;
+		Object.assign(current, doc, { loaded: false });
+		delete current.source;
+		delete current.html;
+		availableDocuments.set(key, current);
+		entries.splice(Math.min(index, entries.length), 0, [key, current]);
+	}
+	tabs.clear();
+	for (const [key, doc] of entries) tabs.set(key, doc);
+	const target = tabs.has(batch.active)
+		? batch.active
+		: keyFor(restored[0].doc);
+	await activate(target, { focusReader: true });
+	if (failure && active === target)
+		status(`一部のタブを復元できませんでした。${failure}`, true);
+}
+
 function reorderTabs(keys) {
 	const current = [...tabs.keys()];
 	if (keys.every((key, index) => key === current[index])) return;
@@ -558,6 +673,7 @@ async function reloadTab(key = active) {
 
 function showEmpty(message, { record = true } = {}) {
 	active = null;
+	readerSearch.dismiss();
 	tabController.selectOnly(null);
 	renderRevision++;
 	setFocusMode(false);
@@ -734,9 +850,12 @@ function createReaderFrame(doc, revision, { hash, scrollTop, scrollLeft }) {
 		pre.textContent = doc.source;
 		content = pre.outerHTML;
 	}
-	frame.onload = () => {
+	frame.onload = async () => {
 		if (revision !== renderRevision) return;
 		const readerDocument = frame.contentDocument;
+		// Restore pixels only after local fonts finish layout, avoiding scroll anchoring jumps.
+		await readerDocument.fonts.ready;
+		if (revision !== renderRevision) return;
 		readerDocument.documentElement.dataset.theme = theme;
 		readerDocument.body.tabIndex = -1;
 		displayedView = {
@@ -758,6 +877,7 @@ function createReaderFrame(doc, revision, { hash, scrollTop, scrollLeft }) {
 				status(error.message, true),
 			);
 		}
+		readerSearch.setDocument(readerDocument, keyFor(doc));
 		if (!hash) frame.contentWindow.scrollTo(scrollLeft, scrollTop);
 		if (readerFocusRevision === revision) focusReaderContent();
 	};
@@ -766,7 +886,7 @@ function createReaderFrame(doc, revision, { hash, scrollTop, scrollLeft }) {
 <html lang="ja" data-theme="${theme}">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'self'; img-src blob:; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'self'; font-src 'self'; img-src blob:; base-uri 'none'; form-action 'none'">
 <link rel="stylesheet" href="${location.origin}/reader.css">
 </head>
 <body>${content}</body>
@@ -864,6 +984,41 @@ function shortcuts(event) {
 		return;
 	const key = event.key.toLowerCase();
 	const dialogOpen = Boolean(document.querySelector("dialog[open]"));
+	const editable =
+		event.target.isContentEditable ||
+		event.target.closest?.("input, textarea, select");
+	const isCommand = (event.metaKey || event.ctrlKey) && !event.altKey;
+	if (isCommand && !event.shiftKey && key === "p") {
+		event.preventDefault();
+		if (!dialogOpen) openPalette();
+		return;
+	}
+	if (isCommand && !event.shiftKey && key === "b" && !editable) {
+		event.preventDefault();
+		if (!dialogOpen && !event.repeat) toggleSidebar();
+		return;
+	}
+	if (isCommand && event.shiftKey && key === "t") {
+		event.preventDefault();
+		if (!dialogOpen && !event.repeat) void runExclusiveAction(reopenClosedTabs);
+		return;
+	}
+	if (isCommand && event.shiftKey && key === "v" && !editable) {
+		event.preventDefault();
+		if (!dialogOpen && active && !event.repeat)
+			toggleSource({ focusReader: true });
+		return;
+	}
+	if (isCommand && !event.shiftKey && key === "f") {
+		event.preventDefault();
+		if (!dialogOpen && active) readerSearch.open();
+		return;
+	}
+	if (isCommand && key === "g") {
+		event.preventDefault();
+		if (!dialogOpen && active) readerSearch.step(event.shiftKey ? -1 : 1);
+		return;
+	}
 	const controlOnly = event.ctrlKey && !event.metaKey && !event.altKey;
 	if (controlOnly && key === "tab") {
 		event.preventDefault();
@@ -883,7 +1038,6 @@ function shortcuts(event) {
 		}
 		return;
 	}
-	const isCommand = (event.metaKey || event.ctrlKey) && !event.altKey;
 	if (isCommand && !event.shiftKey && (key === "w" || event.code === "KeyW")) {
 		event.preventDefault();
 		if (!event.repeat && !dialogOpen) closeTabs(tabController.selectedKeys());
@@ -895,9 +1049,6 @@ function shortcuts(event) {
 			void runExclusiveAction(() => reloadTab());
 		return;
 	}
-	const editable =
-		event.target.isContentEditable ||
-		event.target.closest?.("input, textarea, select");
 	if (
 		key === "/" &&
 		!event.metaKey &&
@@ -925,7 +1076,8 @@ function shortcuts(event) {
 			hideHighlightToolbar();
 			return;
 		}
-		setFocusMode(false);
+		if (readerSearch.isOpen()) readerSearch.dismiss();
+		else setFocusMode(false);
 		return;
 	}
 	if (isCommandShift && key === "p") {
@@ -935,6 +1087,10 @@ function shortcuts(event) {
 }
 document.addEventListener("keydown", shortcuts);
 $("palette-open").addEventListener("click", openPalette);
+$("sidebar-toggle").addEventListener("click", toggleSidebar);
+$("reopen-closed").addEventListener("click", () =>
+	runExclusiveAction(reopenClosedTabs),
+);
 $("focus-toggle").addEventListener("click", () => {
 	setFocusMode(!document.body.classList.contains("focus-mode"));
 });
@@ -1032,11 +1188,7 @@ $("close-all").addEventListener("click", () => closeTabs([...tabs.keys()]));
 $("reload").addEventListener("click", () =>
 	runExclusiveAction(() => reloadTab()),
 );
-$("source-toggle").addEventListener("click", () => {
-	showSource = !showSource;
-	$("source-toggle").textContent = showSource ? "Preview" : "Raw";
-	if (active) activate(active, { preserveTabSelection: true });
-});
+$("source-toggle").addEventListener("click", () => toggleSource());
 document.addEventListener("focusin", (event) => {
 	if (event.target !== $("content")) readerFocusRevision = null;
 });
