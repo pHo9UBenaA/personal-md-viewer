@@ -1,20 +1,34 @@
 @font-face {
-	font-family: "Viewer Sans";
+	font-family: "BIZ UDPGothic";
 	font-style: normal;
 	font-weight: 400;
 	font-display: swap;
-	src: url("/fonts/IBMPlexSans-Regular.ttf") format("truetype");
+	src: url("/fonts/BIZUDPGothic-Regular.woff2") format("woff2");
 }
 @font-face {
-	font-family: "Viewer Mono";
+	font-family: "BIZ UDPGothic";
+	font-style: normal;
+	font-weight: 700;
+	font-display: swap;
+	src: url("/fonts/BIZUDPGothic-Bold.woff2") format("woff2");
+}
+@font-face {
+	font-family: "BIZ UDGothic";
 	font-style: normal;
 	font-weight: 400;
 	font-display: swap;
-	src: url("/fonts/Lilex-Regular.ttf") format("truetype");
+	src: url("/fonts/BIZUDGothic-Regular.woff2") format("woff2");
+}
+@font-face {
+	font-family: "BIZ UDGothic";
+	font-style: normal;
+	font-weight: 700;
+	font-display: swap;
+	src: url("/fonts/BIZUDGothic-Bold.woff2") format("woff2");
 }
 :root {
-	--ui-font: "Viewer Sans", "Hiragino Sans", system-ui, sans-serif;
-	--mono-font: "Viewer Mono", "SFMono-Regular", Consolas, monospace;
+	--ui-font: "BIZ UDPGothic", "Hiragino Sans", system-ui, sans-serif;
+	--mono-font: "BIZ UDGothic", "SFMono-Regular", Consolas, monospace;
 	--page: #282828;
 	--surface: #1d2021;
 	--text: #ebdbb2;

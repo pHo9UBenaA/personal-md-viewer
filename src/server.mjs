@@ -46,17 +46,24 @@ const assets = new Map([
 	["/icons/sidebar.svg", ["icons/sidebar.svg", "image/svg+xml"]],
 	["/icons/restore.svg", ["icons/restore.svg", "image/svg+xml"]],
 	[
-		"/fonts/IBMPlexSans-Regular.ttf",
-		["fonts/IBMPlexSans-Regular.ttf", "font/ttf"],
-	],
-	["/fonts/Lilex-Regular.ttf", ["fonts/Lilex-Regular.ttf", "font/ttf"]],
-	[
-		"/fonts/IBM-Plex-OFL.txt",
-		["fonts/IBM-Plex-OFL.txt", "text/plain; charset=utf-8"],
+		"/fonts/BIZUDPGothic-Regular.woff2",
+		["fonts/BIZUDPGothic-Regular.woff2", "font/woff2"],
 	],
 	[
-		"/fonts/Lilex-OFL.txt",
-		["fonts/Lilex-OFL.txt", "text/plain; charset=utf-8"],
+		"/fonts/BIZUDPGothic-Bold.woff2",
+		["fonts/BIZUDPGothic-Bold.woff2", "font/woff2"],
+	],
+	[
+		"/fonts/BIZUDGothic-Regular.woff2",
+		["fonts/BIZUDGothic-Regular.woff2", "font/woff2"],
+	],
+	[
+		"/fonts/BIZUDGothic-Bold.woff2",
+		["fonts/BIZUDGothic-Bold.woff2", "font/woff2"],
+	],
+	[
+		"/fonts/BIZ-UD-OFL.txt",
+		["fonts/BIZ-UD-OFL.txt", "text/plain; charset=utf-8"],
 	],
 ]);
 const contentSecurityPolicy =

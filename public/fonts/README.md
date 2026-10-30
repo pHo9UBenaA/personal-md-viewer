@@ -1,8 +1,17 @@
 # Bundled fonts
 
-These unmodified font files come from [Zed's font assets](https://github.com/zed-industries/zed/tree/8fa085e397fd106166eb055f74a6e9d5e674d02f/assets/fonts).
+[BIZ UDGothic and BIZ UDPGothic](https://github.com/googlefonts/morisawa-biz-ud-gothic) are Japanese and Latin typefaces from Morisawa, distributed under the SIL Open Font License 1.1. See `BIZ-UD-OFL.txt` for the copyright notice and license.
 
-- `IBMPlexSans-Regular.ttf`: IBM Plex Sans, copyright © 2017 IBM Corp., Reserved Font Name “Plex”. SIL Open Font License 1.1; see `IBM-Plex-OFL.txt`.
-- `Lilex-Regular.ttf`: Lilex, copyright 2019 The Lilex Project Authors. SIL Open Font License 1.1; see `Lilex-OFL.txt`.
+- UI and Preview text: BIZ UDPGothic Regular (400) and Bold (700), with proportional spacing.
+- Raw and code: BIZ UDGothic Regular (400) and Bold (700), with fixed-width spacing; Japanese full-width characters occupy twice the advance of Latin half-width characters.
 
-Both fonts are served locally. Japanese glyphs fall back to the system's installed Japanese fonts.
+The source TTF files come from [`fonts/ttf/` at commit `18934af56b9c003ca58c54bffbf226848cb11032`](https://github.com/googlefonts/morisawa-biz-ud-gothic/tree/18934af56b9c003ca58c54bffbf226848cb11032/fonts/ttf), tagged `v1.051`. The committed WOFF2 files were compressed with fontTools 4.68.0 and Brotli 1.2.1, without subsetting. Character maps, glyph order and advance widths are retained.
+
+For a font update, obtain the four TTF files and `OFL.txt` from the selected upstream revision, and compress each font:
+
+```sh
+uv run --no-project --isolated --with 'fonttools[woff]==4.68.0' --with 'brotli==1.2.1' \
+  python -m fontTools.ttLib.woff2 compress FONT.ttf -o FONT.woff2
+```
+
+The conversion tools are only needed when updating the bundled files, not to run or test the Viewer. All four fonts are served locally; no Google Fonts API or CDN is used at runtime. Characters not covered by these fonts, including some symbols and emoji, may use system fallback fonts.

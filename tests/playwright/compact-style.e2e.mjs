@@ -92,7 +92,7 @@ for (const width of [320, 390, 1280]) {
 		expect(external).toEqual([]);
 		const loaded = await page.evaluate(() =>
 			[...document.fonts].some(
-				(font) => font.family === "Viewer Sans" && font.status === "loaded",
+				(font) => font.family === "BIZ UDPGothic" && font.status === "loaded",
 			),
 		);
 		expect(loaded).toBe(true);

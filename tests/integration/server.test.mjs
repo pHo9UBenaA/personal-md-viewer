@@ -309,21 +309,33 @@ test("the install manifest and fixed app icons are local, token-free and uncache
 });
 
 test("bundled fonts retain their binary bytes and include licenses", async () => {
-	for (const name of ["IBMPlexSans-Regular.ttf", "Lilex-Regular.ttf"]) {
-		const response = await fetch(`${base}/fonts/${name}`);
-		assert.equal(response.status, 200);
-		assert.equal(response.headers.get("content-type"), "font/ttf");
-		assert.deepEqual(
-			Buffer.from(await response.arrayBuffer()),
-			await readFile(new URL(`../../public/fonts/${name}`, import.meta.url)),
-		);
+	for (const family of ["BIZUDPGothic", "BIZUDGothic"]) {
+		for (const weight of ["Regular", "Bold"]) {
+			const name = `${family}-${weight}.woff2`;
+			const response = await fetch(`${base}/fonts/${name}`);
+			assert.equal(response.status, 200);
+			assert.equal(response.headers.get("content-type"), "font/woff2");
+			const bytes = Buffer.from(await response.arrayBuffer());
+			assert.equal(bytes.toString("ascii", 0, 4), "wOF2");
+			assert.equal(bytes.readUInt32BE(8), bytes.length);
+			assert.deepEqual(
+				bytes,
+				await readFile(new URL(`../../public/fonts/${name}`, import.meta.url)),
+			);
+		}
 	}
-	for (const name of ["IBM-Plex-OFL.txt", "Lilex-OFL.txt"])
-		assert.match(
-			await (await fetch(`${base}/fonts/${name}`)).text(),
-			/SIL OPEN FONT LICENSE Version 1.1/,
-		);
-	assert.equal((await fetch(`${base}/fonts/arbitrary.ttf`)).status, 404);
+	const license = await fetch(`${base}/fonts/BIZ-UD-OFL.txt`);
+	assert.equal(license.status, 200);
+	assert.match(await license.text(), /SIL OPEN FONT LICENSE Version 1.1/);
+	for (const name of [
+		"arbitrary.woff2",
+		"arbitrary.ttf",
+		"IBMPlexSans-Regular.ttf",
+		"Lilex-Regular.ttf",
+		"IBM-Plex-OFL.txt",
+		"Lilex-OFL.txt",
+	])
+		assert.equal((await fetch(`${base}/fonts/${name}`)).status, 404);
 });
 
 test("relative Markdown links and images remain within the selected root", async () => {
