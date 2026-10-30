@@ -219,6 +219,7 @@ async function openPath(path, recursive) {
 function drawNavigation() {
 	byId("count").textContent = String(availableDocuments.size);
 	byId("reopen-closed").disabled = closedBatches.length === 0;
+	byId("close-all").disabled = tabs.size === 0;
 	workspace.dataset.hasDocuments = String(availableDocuments.size > 0);
 	tabController.draw();
 	treeController.draw();

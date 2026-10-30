@@ -27,17 +27,23 @@ input {
 	outline-offset: 2px;
 }
 button {
+	align-content: center;
+	height: var(--control-height);
 	min-height: var(--control-height);
-	padding: 3px 8px;
+	/* BIZ UDPゴシックの字面が中央に見えるよう、上側に 2px を配分する。 */
+	padding: 2px 8px 0;
 	line-height: 1.25;
-	color: inherit;
+	color: var(--text);
 	cursor: pointer;
-	background: var(--button);
-	border: 1px solid var(--border);
+	background: transparent;
+	border: 1px solid transparent;
 	border-radius: 4px;
 }
-button:hover {
+button:hover:enabled {
 	background: var(--hover);
+}
+button:active:enabled {
+	background: var(--selected);
 }
 button:disabled {
 	cursor: default;
@@ -92,9 +98,6 @@ kbd {
 	gap: 6px;
 	align-items: center;
 }
-.search-action {
-	background: transparent;
-}
 .icon-button,
 .theme-action {
 	display: inline-flex;
@@ -131,7 +134,7 @@ kbd {
 	align-items: flex-start;
 	padding: 2px 12px;
 	font-size: 12px;
-	line-height: 24px;
+	line-height: var(--control-height);
 	color: var(--muted);
 }
 .notice-message {
@@ -141,10 +144,8 @@ kbd {
 }
 .notice-close {
 	flex-shrink: 0;
-	width: 24px;
-	height: 24px;
-	min-height: 24px;
-	padding: 0;
+	width: var(--control-height);
+	padding-inline: 0;
 	background: transparent;
 	border: 0;
 }
@@ -196,9 +197,7 @@ body.resizing-sidebar {
 	color: var(--muted);
 }
 .sidebar-heading button {
-	min-height: 24px;
-	padding: 2px 5px;
-	background: none;
+	padding-inline: 5px;
 }
 .filter-row {
 	display: grid;
@@ -239,22 +238,23 @@ body.resizing-sidebar {
 #file-list .tree-folder-row,
 #outline button {
 	display: block;
+	align-content: center;
 	width: 100%;
-	min-height: 24px;
-	padding: 2px 6px;
+	height: var(--control-height);
+	padding: 2px 6px 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	font-size: var(--control-font-size);
-	line-height: 20px;
+	line-height: 1.25;
 	text-align: left;
 	white-space: nowrap;
 	background: none;
 	border: 0;
 	border-radius: 3px;
 }
-#file-list button:hover,
+#file-list button:hover:enabled,
 #file-list .tree-folder-row:hover,
-#outline button:hover {
+#outline button:hover:enabled {
 	background: var(--hover);
 }
 #file-list button[aria-current="true"] {
@@ -335,9 +335,8 @@ main {
 	border-right: 1px solid var(--border);
 }
 .tab button {
-	padding: 5px 10px;
+	padding-inline: 10px;
 	white-space: nowrap;
-	background: none;
 	border: 0;
 	border-radius: 0;
 }
@@ -370,8 +369,8 @@ main {
 	box-shadow: inset -3px 0 var(--accent);
 }
 .tab .close-tab {
-	min-width: 26px;
-	padding: 4px;
+	width: var(--control-height);
+	padding-inline: 4px;
 	color: var(--muted);
 }
 .tab-menu {
@@ -391,12 +390,10 @@ main {
 	display: none;
 }
 .tab-menu button {
-	padding: 3px 8px;
 	text-align: left;
-	background: none;
 	border: 0;
 }
-.tab-menu button:hover,
+.tab-menu button:hover:enabled,
 .tab-menu button:focus-visible {
 	background: var(--hover);
 }
@@ -483,8 +480,7 @@ form > label {
 	white-space: nowrap;
 }
 .document-bar button {
-	min-height: var(--control-height);
-	padding: 3px 6px;
+	padding-inline: 6px;
 	white-space: nowrap;
 }
 .find-bar {
@@ -515,8 +511,7 @@ form > label {
 .find-bar button {
 	flex-shrink: 0;
 	width: var(--control-height);
-	min-height: var(--control-height);
-	padding: 2px;
+	padding-inline: 2px;
 }
 .highlight-toolbar {
 	position: fixed;
@@ -543,10 +538,8 @@ form > label {
 }
 .highlight-toolbar button {
 	position: relative;
-	flex: 0 0 26px;
-	width: 26px;
-	height: 26px;
-	min-height: 26px;
+	flex: 0 0 var(--control-height);
+	width: var(--control-height);
 	padding: 0;
 	background: var(--highlight-color);
 	border: 2px solid color-mix(in srgb, var(--highlight-color), var(--text) 28%);
@@ -567,7 +560,7 @@ form > label {
 	box-shadow: 0 0 0 1px #000;
 	transform: translate(-50%, -50%);
 }
-.highlight-toolbar button:hover,
+.highlight-toolbar button:hover:enabled,
 .highlight-toolbar button:focus-visible {
 	background: var(--highlight-color);
 	transform: scale(1.12);
@@ -589,13 +582,13 @@ form > label {
 }
 .highlight-toolbar .highlight-remove {
 	--highlight-color: transparent;
-	line-height: 20px;
+	padding-top: 2px;
 	color: var(--text);
 	background: transparent;
 	border-color: var(--border);
 	box-shadow: none;
 }
-.highlight-toolbar .highlight-remove:hover,
+.highlight-toolbar .highlight-remove:hover:enabled,
 .highlight-toolbar .highlight-remove:focus-visible {
 	background: var(--hover);
 }
@@ -644,8 +637,6 @@ body.focus-mode .document-bar > :not(#focus-toggle) {
 	display: none;
 }
 body.focus-mode #focus-toggle {
-	padding: 5px 8px;
-	background: transparent;
 	border: 0;
 }
 body.focus-mode .find-bar {
@@ -703,7 +694,7 @@ dialog::backdrop {
 }
 .palette-heading button {
 	min-width: var(--control-height);
-	padding: 3px 6px;
+	padding-inline: 6px;
 }
 #results {
 	display: grid;
@@ -714,14 +705,11 @@ dialog::backdrop {
 	display: none;
 }
 #results button {
-	min-height: var(--control-height);
-	padding: 3px 6px;
+	padding-inline: 6px;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	text-align: left;
 	white-space: nowrap;
-	background: transparent;
-	border-color: transparent;
 }
 #results button[data-selected="true"] {
 	background: var(--selected);
