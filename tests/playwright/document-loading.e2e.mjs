@@ -39,6 +39,10 @@ test("copied folders load documents lazily and reject a drop onto the reader", a
 			.getByRole("heading", { name: "Document 200", exact: true }),
 	).toBeVisible();
 	expect(reads).toBe(2);
+	await expect(page.frameLocator("#content").locator("body")).toHaveAttribute(
+		"tabindex",
+		"-1",
+	);
 	await page.evaluate(() => {
 		const frame = document.getElementById("content").contentDocument;
 		const transfer = new DataTransfer();

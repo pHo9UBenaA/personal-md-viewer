@@ -24,6 +24,10 @@ test("highlights can be added, recolored, and removed without leaving focus mode
 		await page.goto(url);
 		const focus = page.locator("#focus-toggle");
 		await focus.click();
+		await expect(page.frameLocator("#content").locator("body")).toHaveAttribute(
+			"tabindex",
+			"-1",
+		);
 		await page
 			.frameLocator("#content")
 			.locator("strong")
@@ -75,6 +79,10 @@ test("highlights can be added, recolored, and removed without leaving focus mode
 			'<mark data-mdv-color="yellow">important words</mark>',
 		);
 
+		await expect(page.frameLocator("#content").locator("body")).toHaveAttribute(
+			"tabindex",
+			"-1",
+		);
 		await mark.click();
 		await expect(toolbar).toBeVisible();
 		await expect(
@@ -85,6 +93,10 @@ test("highlights can be added, recolored, and removed without leaving focus mode
 		).toBeEnabled();
 		await page.getByRole("button", { name: "青のマーカー" }).click();
 		await expect(mark).toHaveAttribute("data-mdv-color", "blue");
+		await expect(page.frameLocator("#content").locator("body")).toHaveAttribute(
+			"tabindex",
+			"-1",
+		);
 		await mark.click();
 		await expect(
 			page.getByRole("button", { name: "青のマーカー" }),

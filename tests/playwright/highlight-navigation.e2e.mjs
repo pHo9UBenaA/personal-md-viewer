@@ -31,6 +31,10 @@ test("a late highlight save preserves the newly selected tab and its scroll posi
 	try {
 		await page.goto(url);
 		await page.locator("#filter").fill(".md");
+		await expect(page.frameLocator("#content").locator("body")).toHaveAttribute(
+			"tabindex",
+			"-1",
+		);
 		await page
 			.frameLocator("#content")
 			.locator("strong")
@@ -48,6 +52,10 @@ test("a late highlight save preserves the newly selected tab and its scroll posi
 		await expect(
 			page.frameLocator("#content").getByRole("heading", { name: "Second" }),
 		).toBeVisible();
+		await expect(page.frameLocator("#content").locator("body")).toHaveAttribute(
+			"tabindex",
+			"-1",
+		);
 		await page
 			.locator("#content")
 			.evaluate((frame) => frame.contentWindow.scrollTo(0, 600));

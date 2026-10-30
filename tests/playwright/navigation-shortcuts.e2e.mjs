@@ -199,6 +199,10 @@ test("trusted HTML editing keeps slash input and supports focus toggling", async
 		const input = page
 			.frameLocator("#content")
 			.getByRole("textbox", { name: "Editable", exact: true });
+		await expect(page.frameLocator("#content").locator("body")).toHaveAttribute(
+			"tabindex",
+			"-1",
+		);
 		await input.fill("text");
 		await input.press("/");
 		await expect(input).toHaveValue("text/");

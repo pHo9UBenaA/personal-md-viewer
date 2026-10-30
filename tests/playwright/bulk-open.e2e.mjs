@@ -53,6 +53,10 @@ test("bulk open includes collapsed matches without reading, duplicating or movin
 	await expect(page.frameLocator("#content").locator("h1")).toHaveText(
 		"match-z.md",
 	);
+	await expect(page.frameLocator("#content").locator("body")).toHaveAttribute(
+		"tabindex",
+		"-1",
+	);
 	const existing = await page.getByRole("tab").allTextContents();
 	const matches = await page.locator("#file-list .tree-file").allTextContents();
 	await page.locator("#file-list > .tree-folder > .tree-folder-row").click();

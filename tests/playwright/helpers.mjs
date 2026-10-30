@@ -79,6 +79,10 @@ export async function openCopiedMarkdown(page, directory, { name, source }) {
 	await page.goto("/");
 	await openCopiedPath(page, path);
 	await expect(page.getByRole("tab", { name, exact: true })).toBeVisible();
+	await expect(page.frameLocator("#content").locator("body")).toHaveAttribute(
+		"tabindex",
+		"-1",
+	);
 	return path;
 }
 
@@ -107,6 +111,10 @@ export async function openFolder(page, folder) {
 			.frameLocator("#content")
 			.getByRole("heading", { name: "First document", exact: true }),
 	).toBeVisible();
+	await expect(page.frameLocator("#content").locator("body")).toHaveAttribute(
+		"tabindex",
+		"-1",
+	);
 }
 
 export async function openTabs(page, directory) {
