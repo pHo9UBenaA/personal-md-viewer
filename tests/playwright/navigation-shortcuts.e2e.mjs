@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { createViewerServer } from "../../src/server.mjs";
 import { closeServer, listenOnLoopback } from "../helpers/http.mjs";
-import { openCopiedPath, test } from "./helpers.mjs";
+import { activeTab, openCopiedPath, openTabs, test } from "./helpers.mjs";
+import { command } from "./keyboard.mjs";
 
 async function openLongTabs(page, viewer) {
 	const directory = await mkdtemp(join(viewer.directory, "navigation-"));
@@ -208,4 +209,87 @@ test("trusted HTML editing keeps slash input and supports focus toggling", async
 	} finally {
 		await closeServer(server);
 	}
+});
+
+test("Cmd+B toggles the sidebar without losing its width; slash reveals it", async ({
+	page,
+	tabDirectory,
+}) => {
+	await openTabs(page, tabDirectory);
+	const resizer = page.locator("#sidebar-resizer");
+	await resizer.focus();
+	await page.keyboard.press("ArrowRight");
+	const width = await resizer.getAttribute("aria-valuenow");
+	await command(page, "b", { target: "reader" });
+	await expect(page.locator("#sidebar")).toBeHidden();
+	await expect(page.locator("#sidebar-toggle")).toHaveAttribute(
+		"aria-expanded",
+		"false",
+	);
+	await command(page, "b", { target: "reader" });
+	await expect(page.locator("#sidebar")).toBeVisible();
+	await expect(resizer).toHaveAttribute("aria-valuenow", width);
+	await page.locator("#sidebar-toggle").click();
+	await page.frameLocator("#content").locator("body").press("/");
+	await expect(page.locator("#filter")).toBeFocused();
+	await page.locator("#focus-toggle").click();
+	await command(page, "b", { target: "reader" });
+	await expect(page.locator("#sidebar")).toBeVisible();
+	await expect(page.locator("#focus-toggle")).toHaveAttribute(
+		"aria-pressed",
+		"false",
+	);
+});
+
+test("Cmd+P opens the palette; Cmd+Shift+V toggles Raw and Preview", async ({
+	page,
+	tabDirectory,
+}) => {
+	await openTabs(page, tabDirectory);
+	expect(await command(page, "p", { target: "reader" })).toBe(true);
+	await expect(
+		page.getByRole("dialog", { name: "コマンドパレット" }),
+	).toBeVisible();
+	await page.keyboard.press("Escape");
+	await command(page, "v", { shift: true, target: "reader" });
+	await expect(page.frameLocator("#content").locator("pre")).toContainText(
+		"# C",
+	);
+	await expect(page.frameLocator("#content").locator("body")).toHaveAttribute(
+		"tabindex",
+		"-1",
+	);
+	await command(page, "v", { shift: true, target: "reader" });
+	await expect(page.frameLocator("#content").locator("h1")).toHaveText("C");
+	await command(page, "f");
+	await expect(page.locator("#find-query")).toBeFocused();
+	expect(await command(page, "v", { shift: true, target: "input" })).toBe(
+		false,
+	);
+	expect(await command(page, "b", { target: "input" })).toBe(false);
+	await expect(
+		page.getByRole("button", { name: "Raw", exact: true }),
+	).toBeVisible();
+});
+
+test("dialogs and composition block new shortcuts", async ({
+	page,
+	tabDirectory,
+}) => {
+	await openTabs(page, tabDirectory);
+	await page.locator("#palette-open").click();
+	for (const [key, shift] of [
+		["b", false],
+		["t", true],
+		["v", true],
+		["f", false],
+		["g", false],
+	])
+		await command(page, key, { shift });
+	await expect(page.locator("#command")).toBeFocused();
+	await expect(page.locator("#find-bar")).toBeHidden();
+	await expect(activeTab(page)).toHaveText("C.md");
+	await page.keyboard.press("Escape");
+	expect(await command(page, "b", { composing: true })).toBe(false);
+	await expect(page.locator("#sidebar")).toBeVisible();
 });
