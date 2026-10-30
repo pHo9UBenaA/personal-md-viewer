@@ -7,6 +7,8 @@ import { renderMarkdown } from "./render.mjs";
 const assets = new Map([
 	["/", ["index.html", "text/html; charset=utf-8"]],
 	["/app.js", ["app.js", "text/javascript; charset=utf-8"]],
+	["/tabs.js", ["tabs.js", "text/javascript; charset=utf-8"]],
+	["/shortcuts", ["shortcuts.html", "text/html; charset=utf-8"]],
 	["/documents.js", ["documents.js", "text/javascript; charset=utf-8"]],
 	["/selection.js", ["selection.js", "text/javascript; charset=utf-8"]],
 	["/sidebar.js", ["sidebar.js", "text/javascript; charset=utf-8"]],

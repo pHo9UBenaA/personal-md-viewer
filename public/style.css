@@ -87,6 +87,12 @@ kbd {
 .theme-action {
 	min-width: 68px;
 }
+.shortcut-notice {
+	padding: 4px 20px;
+	font-size: 11px;
+	line-height: 1.6;
+	color: var(--muted);
+}
 #status {
 	min-height: 30px;
 	padding: 0 20px;
@@ -233,9 +239,47 @@ main {
 	border: 0;
 	border-radius: 0;
 }
-.tab:has([aria-selected="true"]) {
+.tab[data-batch-selected="true"] {
 	background: var(--selected);
+}
+.tab:has([aria-selected="true"]) {
 	border-bottom: 2px solid var(--accent);
+}
+.tab[data-drop-position="before"] {
+	box-shadow: inset 3px 0 var(--accent);
+}
+.tab[data-drop-position="after"] {
+	box-shadow: inset -3px 0 var(--accent);
+}
+.tab-menu {
+	position: fixed;
+	z-index: 20;
+	display: grid;
+	max-width: calc(100vw - 16px);
+	max-height: calc(100dvh - 16px);
+	padding: 5px;
+	overflow: auto;
+	background: var(--dialog);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	box-shadow: 0 8px 24px #0003;
+}
+.tab-menu[hidden] {
+	display: none;
+}
+.tab-menu button {
+	padding: 8px 12px;
+	font-size: 12px;
+	text-align: left;
+	background: none;
+	border: 0;
+}
+.tab-menu button:hover,
+.tab-menu button:focus-visible {
+	background: var(--hover);
+}
+.tab-menu button:disabled {
+	cursor: default;
 }
 .tab .close-tab {
 	padding: 8px;
@@ -422,6 +466,7 @@ iframe {
 	border: 0;
 }
 body.focus-mode .toolbar,
+body.focus-mode .shortcut-notice,
 body.focus-mode #status,
 body.focus-mode .sidebar,
 body.focus-mode #sidebar-resizer,
@@ -453,6 +498,29 @@ body.focus-mode #focus-toggle {
 	font-size: 12px;
 	background: transparent;
 	border: 0;
+}
+body.help-page {
+	display: block;
+	height: auto;
+	padding: 24px;
+}
+.help-content {
+	max-width: 900px;
+	margin: auto;
+	overflow: visible;
+}
+.help-content h1 {
+	font-size: 26px;
+}
+.help-content table {
+	width: 100%;
+	border-collapse: collapse;
+}
+.help-content th,
+.help-content td {
+	padding: 10px;
+	text-align: left;
+	border: 1px solid var(--border);
 }
 dialog {
 	width: min(760px, calc(100vw - 32px));

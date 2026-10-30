@@ -30,6 +30,7 @@ test("a late highlight save preserves the newly selected tab and its scroll posi
 	});
 	try {
 		await page.goto(url);
+		await page.locator("#filter").fill(".md");
 		await page
 			.frameLocator("#content")
 			.locator("strong")

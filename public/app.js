@@ -1,6 +1,7 @@
 import { findDocuments, treeFromDocuments } from "./documents.js";
 import { mapSourceText, sourceRangesForSelection } from "./selection.js";
 import { initializeSidebarResize } from "./sidebar.js";
+import { initializeTabs } from "./tabs.js";
 
 const $ = (id) => document.getElementById(id);
 const token = document.querySelector('meta[name="viewer-token"]').content;
@@ -22,7 +23,7 @@ let busy = false;
 let blobUrls = [];
 let highlightSelection = null;
 let highlightListeners = null;
-const collapsedFolders = new Set();
+const expandedFolders = new Set();
 const filterCollapsedFolders = new Set();
 const MAX_CACHED_TABS = 10;
 const MAX_PAGE_IMAGES = 100;
@@ -33,6 +34,18 @@ initializeSidebarResize({
 	workspace,
 	sidebar: $("sidebar"),
 	resizer: $("sidebar-resizer"),
+});
+
+const tabController = initializeTabs({
+	element: $("tabs"),
+	menu: $("tab-menu"),
+	tabs,
+	getActive: () => active,
+	activate,
+	closeTabs,
+	reorderTabs,
+	reloadTab: (key) => runExclusiveAction(() => reloadTab(key)),
+	status,
 });
 
 let theme = document.documentElement.dataset.theme;
@@ -161,8 +174,10 @@ function drawTreeBranch(
 	for (const [id, child] of directories) {
 		const folderPath = [...path, id];
 		const folderKey = JSON.stringify(folderPath);
-		const folderState = filtering ? filterCollapsedFolders : collapsedFolders;
-		const expanded = !folderState.has(folderKey);
+		const folderState = filtering ? filterCollapsedFolders : expandedFolders;
+		const expanded = filtering
+			? !folderState.has(folderKey)
+			: folderState.has(folderKey);
 		const folder = document.createElement("div");
 		folder.className = "tree-folder";
 		const row = document.createElement("div");
@@ -218,30 +233,10 @@ function drawTreeBranch(
 	}
 }
 
-function drawOpenTabs() {
-	$("tabs").replaceChildren();
-	for (const [key, doc] of tabs) {
-		const tab = button(doc.name, () => activate(key));
-		tab.setAttribute("role", "tab");
-		tab.setAttribute("aria-selected", String(active === key));
-		tab.setAttribute("aria-controls", "reader");
-		tab.tabIndex = active === key ? 0 : -1;
-		tab.title = doc.path ?? doc.label;
-		tab.id = `tab-${doc.id}`;
-		const close = button("×", () => closeTab(key), "close-tab");
-		close.setAttribute("aria-label", `${doc.label} を閉じる`);
-		const group = document.createElement("div");
-		group.className = "tab";
-		group.setAttribute("role", "presentation");
-		group.append(tab, close);
-		$("tabs").append(group);
-	}
-}
-
 function drawNavigation() {
 	$("count").textContent = String(availableDocuments.size);
 	workspace.dataset.hasDocuments = String(availableDocuments.size > 0);
-	drawOpenTabs();
+	tabController.draw();
 	$("file-list").replaceChildren();
 	const query = $("filter").value.trim();
 	const visibleDocuments = findDocuments(availableDocuments, query);
@@ -419,7 +414,7 @@ async function applyHighlight(color) {
 	// Saving may finish after navigation; update the saved document, not the new reader.
 	if (selected.revision !== renderRevision || selected.key !== active) return;
 	hideHighlightToolbar();
-	await activate(selected.key, { scrollTop });
+	await activate(selected.key, { scrollTop, preserveTabSelection: true });
 	const messagesByMode = {
 		add: "マーカーを保存しました。",
 		recolor: "マーカーの色を変更しました。",
@@ -428,26 +423,56 @@ async function applyHighlight(color) {
 	status(messagesByMode[mode]);
 }
 
-function closeTab(key) {
+function closeTabs(closingKeys) {
 	const keys = [...tabs.keys()];
-	const index = keys.indexOf(key);
-	tabs.delete(key);
-	if (key === active) {
-		active = null;
-		const next = keys[index + 1] ?? keys[index - 1];
-		if (next) {
-			activate(next);
-			return;
-		}
-		showEmpty("タブを閉じました。");
+	const closing = new Set(closingKeys.filter((key) => tabs.has(key)));
+	if (!closing.size) return;
+	const focusWasInTabs = $("tabs").contains(document.activeElement);
+	const index = keys.indexOf(active);
+	for (const key of closing) tabs.delete(key);
+	if (!tabs.size) {
+		showEmpty("タブを閉じました。ファイル一覧から開き直せます。");
+		if (focusWasInTabs) $("filter").focus();
 		return;
 	}
+	if (closing.has(active)) {
+		const next =
+			keys.slice(index + 1).find((key) => tabs.has(key)) ??
+			keys
+				.slice(0, index)
+				.reverse()
+				.find((key) => tabs.has(key));
+		void activate(next, { preserveTabSelection: true });
+	} else {
+		drawNavigation();
+		recordView();
+	}
+	if (focusWasInTabs) document.querySelector('[aria-selected="true"]')?.focus();
+}
+
+function reorderTabs(keys) {
+	const current = [...tabs.keys()];
+	if (keys.every((key, index) => key === current[index])) return;
+	const documents = keys.map((key) => [key, tabs.get(key)]);
+	tabs.clear();
+	for (const [key, doc] of documents) tabs.set(key, doc);
 	drawNavigation();
 	recordView();
 }
 
+async function reloadTab(key = active) {
+	const doc = tabs.get(key);
+	if (!doc) return;
+	doc.loaded = false;
+	await activate(key, {
+		preserveTabSelection: key === active,
+		scrollTop: key === active ? ($("content").contentWindow?.scrollY ?? 0) : 0,
+	});
+}
+
 function showEmpty(message, { record = true } = {}) {
 	active = null;
+	tabController.selectOnly(null);
 	renderRevision++;
 	setFocusMode(false);
 	clearReader();
@@ -626,6 +651,9 @@ function createReaderFrame(doc, revision, { hash, scrollTop }) {
 		const readerDocument = frame.contentDocument;
 		readerDocument.documentElement.dataset.theme = theme;
 		readerDocument.addEventListener("keydown", shortcuts);
+		readerDocument.addEventListener("pointerdown", () =>
+			tabController.closeMenu(),
+		);
 		preventFileDrop(readerDocument);
 		if (!showSource) {
 			watchHighlightSelection(readerDocument, doc, revision);
@@ -651,11 +679,15 @@ function createReaderFrame(doc, revision, { hash, scrollTop }) {
 	return frame;
 }
 
-async function activate(key, { hash, record = true, scrollTop = 0 } = {}) {
+async function activate(
+	key,
+	{ hash, record = true, scrollTop = 0, preserveTabSelection = false } = {},
+) {
 	const doc = availableDocuments.get(key);
 	if (!doc) return;
 	tabs.set(key, doc);
 	active = key;
+	if (!preserveTabSelection) tabController.selectOnly(key);
 	if (record) recordView();
 	const revision = ++renderRevision;
 	clearReader();
@@ -676,7 +708,7 @@ async function activate(key, { hash, record = true, scrollTop = 0 } = {}) {
 		);
 		if (revision === renderRevision)
 			status(
-				"コピーを閲覧中。マーカーはコピーに保存し、元ファイルは変更しない。",
+				"コピーを閲覧中（マーカーはコピーに保存し、元ファイルは変更しない）。",
 			);
 	} catch (error) {
 		if (revision === renderRevision) status(error.message, true);
@@ -721,12 +753,46 @@ function setFocusMode(enabled) {
 		: "全画面表示 (⌘⇧F / Ctrl+Shift+F)";
 }
 function shortcuts(event) {
+	if (event.defaultPrevented || event.isComposing || event.keyCode === 229)
+		return;
+	const key = event.key.toLowerCase();
+	const isCommand = (event.metaKey || event.ctrlKey) && !event.altKey;
+	if (isCommand && !event.shiftKey && (key === "w" || event.code === "KeyW")) {
+		event.preventDefault();
+		if (!event.repeat && !$("palette").open)
+			closeTabs(tabController.selectedKeys());
+		return;
+	}
+	if (isCommand && !event.shiftKey && (key === "r" || event.code === "KeyR")) {
+		event.preventDefault();
+		if (!event.repeat && !$("palette").open)
+			void runExclusiveAction(() => reloadTab());
+		return;
+	}
+	const editable =
+		event.target.isContentEditable ||
+		event.target.closest?.("input, textarea, select");
+	if (
+		key === "/" &&
+		!event.metaKey &&
+		!event.ctrlKey &&
+		!event.altKey &&
+		!editable &&
+		!$("palette").open
+	) {
+		event.preventDefault();
+		tabController.closeMenu();
+		setFocusMode(false);
+		$("filter").focus();
+		$("filter").select();
+		return;
+	}
 	const isCommandShift =
 		(event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey;
-	const key = event.key.toLowerCase();
 	if (isCommandShift && key === "f") {
 		if (!active) return;
 		event.preventDefault();
+		tabController.closeMenu();
 		setFocusMode(!document.body.classList.contains("focus-mode"));
 		return;
 	}
@@ -817,10 +883,10 @@ document.addEventListener("keydown", (event) => {
 	event.preventDefault();
 	const folders = [...tree.querySelectorAll(".tree-folder")];
 	if (!folders.length) return;
-	const folderState = $("filter").value.trim()
-		? filterCollapsedFolders
-		: collapsedFolders;
-	for (const folder of folders) folderState.add(folder.dataset.folderKey);
+	if ($("filter").value.trim()) {
+		for (const folder of folders)
+			filterCollapsedFolders.add(folder.dataset.folderKey);
+	} else expandedFolders.clear();
 	const focusKey = [...tree.children].find((folder) =>
 		folder.contains(document.activeElement),
 	)?.dataset.folderKey;
@@ -830,21 +896,15 @@ document.addEventListener("keydown", (event) => {
 			.find((folder) => folder.dataset.folderKey === focusKey)
 			?.focus();
 });
-$("close-all").addEventListener("click", () => {
-	tabs.clear();
-	showEmpty("すべてのタブを閉じました。ファイル一覧から開き直せます。");
-});
-$("reload").addEventListener("click", () => {
-	if (active) {
-		tabs.get(active).loaded = false;
-		activate(active);
-	}
-});
+$("close-all").addEventListener("click", () => closeTabs([...tabs.keys()]));
+$("reload").addEventListener("click", () =>
+	runExclusiveAction(() => reloadTab()),
+);
 $("source-toggle").addEventListener("click", () => {
 	showSource = !showSource;
 	$("source-toggle").setAttribute("aria-pressed", String(showSource));
 	$("source-toggle").textContent = showSource ? "プレビュー" : "ソース";
-	if (active) activate(active);
+	if (active) activate(active, { preserveTabSelection: true });
 });
 document.addEventListener("pointerdown", (event) => {
 	if (!$("highlight-toolbar").contains(event.target)) {
@@ -861,24 +921,6 @@ $("highlight-toolbar").addEventListener("click", (event) => {
 		.highlightColor;
 	if (color) runExclusiveAction(() => applyHighlight(color));
 });
-$("tabs").addEventListener("keydown", (event) => {
-	const keys = [...tabs.keys()];
-	let index = keys.indexOf(active);
-	if (event.key === "ArrowRight") index = (index + 1) % keys.length;
-	else if (event.key === "ArrowLeft")
-		index = (index - 1 + keys.length) % keys.length;
-	else if (event.key === "Home") index = 0;
-	else if (event.key === "End") index = keys.length - 1;
-	else if (event.key === "Delete") {
-		event.preventDefault();
-		closeTab(active);
-		return;
-	} else return;
-	event.preventDefault();
-	activate(keys[index]);
-	document.querySelector('[aria-selected="true"]')?.focus();
-});
-
 function preventFileDrop(target) {
 	target.addEventListener("dragover", (event) => event.preventDefault());
 	target.addEventListener("drop", (event) => {

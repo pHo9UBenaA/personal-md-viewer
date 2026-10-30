@@ -73,6 +73,7 @@ test("copied folders load documents lazily and reject a drop onto the reader", a
 	await page.locator("#open-form button").click();
 	await expect(page.getByRole("tab")).toHaveCount(1);
 	await expect(page.locator(".tree-file")).toHaveCount(201);
+	await page.locator("#file-list > .tree-folder > .tree-folder-row").click();
 	await expect(
 		page
 			.frameLocator("#content")
@@ -293,6 +294,13 @@ async function openFolder(page) {
 		.getByRole("button", { name: "開く", exact: true })
 		.click();
 	await expect(page.getByRole("tab")).toHaveCount(1);
+	const rootFolder = page.locator("#file-list > .tree-folder");
+	await expect(rootFolder).toHaveAttribute("aria-expanded", "false");
+	await rootFolder.locator(":scope > .tree-folder-row").click();
+	await page
+		.getByRole("treeitem", { name: "nested フォルダー", exact: true })
+		.locator(":scope > .tree-folder-row")
+		.click();
 	await expect(
 		page.getByRole("treeitem", { name: "B.markdown" }),
 	).toBeVisible();
@@ -690,6 +698,7 @@ test("initial folders remain in the tree after restoring tabs on reload", async 
 	try {
 		await page.goto(url);
 		await expect(page.locator("#file-list .tree-file")).toHaveCount(3);
+		await page.locator("#filter").fill("C.md");
 		await page.getByRole("treeitem", { name: "C.md", exact: true }).click();
 		await page.reload();
 		await expect(page.locator("#file-list .tree-file")).toHaveCount(3);
@@ -697,6 +706,7 @@ test("initial folders remain in the tree after restoring tabs on reload", async 
 			"aria-selected",
 			"true",
 		);
+		await page.locator("#filter").fill("B.md");
 		await page.getByRole("treeitem", { name: "B.md", exact: true }).click();
 		await expect(
 			page.frameLocator("#content").getByRole("heading", {

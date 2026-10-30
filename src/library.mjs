@@ -145,6 +145,7 @@ export async function createLibrary({ directory = COPIED_DIRECTORY } = {}) {
 			root,
 			name: basename(path),
 			label: relative(root, path) || basename(path),
+			relativePath: relative(copiedRoot, path).split(sep).join("/"),
 		};
 		documents.set(doc.id, doc);
 		documentIdByScopedPath.set(key, doc.id);

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ショートカット — Markdown Viewer</title>
+  <script src="/theme.js"></script>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="help-page">
+  <main class="help-content">
+    <h1>Viewer のショートカット</h1>
+    <p>
+      Viewer にフォーカスがある間、以下のキーを Viewer の操作に使う。
+      本文・ソースの iframe 内でも使用できる。⌘ は macOS、Ctrl は Windows / Linux 向けの表記だ。
+      この案内ページではショートカットを変更しない。
+    </p>
+    <table>
+      <thead><tr><th scope="col">キー</th><th scope="col">Viewer の動作</th><th scope="col">ブラウザー標準動作との違い</th></tr></thead>
+      <tbody>
+        <tr><td>⌘W / Ctrl+W</td><td>選択したアプリ内タブを閉じる。未選択なら表示中のタブが対象。最後のタブを閉じても Viewer のウィンドウは残す。</td><td>Chrome のタブ・ウィンドウを閉じない。Chrome アプリモードでの利用を想定する。</td></tr>
+        <tr><td>⌘R / Ctrl+R</td><td>表示中の文書だけをコピーから読み直す。</td><td>Viewer 全体は再読み込みしない。コピー元からの再コピーでもない。</td></tr>
+        <tr><td>⌘⇧F / Ctrl+Shift+F</td><td>表示中の文書を全画面表示 / 解除する。</td><td>Chrome の機能より Viewer の表示切り替えを優先する。Chrome 自体の全画面化ではなく、Viewer のツリー・タブなどを隠す。</td></tr>
+        <tr><td>⌘⇧P / Ctrl+Shift+P</td><td>「開く・検索」を開く。</td><td>ブラウザー標準動作より Viewer の検索を優先する。</td></tr>
+        <tr><td>/</td><td>ツリーの検索窓にフォーカスする。全画面表示中は通常表示に戻す。</td><td>入力欄・編集中の要素・日本語変換中には反応しない。</td></tr>
+        <tr><td>Esc</td><td>メニューや検索を閉じる。本文ではマーカーの選択を解除し、次の Esc で全画面表示を解除する。</td><td>ブラウザーの全画面状態は変更しない。</td></tr>
+      </tbody>
+    </table>
+    <h2>タブとツリー</h2>
+    <ul>
+      <li>Shift+クリックで、最初に選んだタブからクリック先までを範囲選択する。通常クリックで単一選択に戻る。背景色が一括操作の対象、下線が表示中のタブを示す。</li>
+      <li>タブにフォーカスがある間、← → / Home / End で切り替える。Shift と組み合わせると範囲選択する。Delete / Backspace で選択したタブを閉じる。</li>
+      <li>タブをドラッグして並び替える。右クリック、または Shift+F10 でパスのコピー・左右への移動・再読み込み・閉じる操作を選べる。メニューは ↑↓ と Enter で操作できる。</li>
+      <li>右クリックしたタブが選択範囲内なら選択を保ち、範囲外ならそのタブだけを選択する。「選択したタブを閉じる」以外のメニュー操作は右クリックしたタブを基準にする。</li>
+      <li>ツリーは最初は閉じている。検索中は一致するファイルの親フォルダーを展開し、検索を消すと元の展開状態に戻る。ツリー上の ⌘← でフォルダーをすべて閉じる。</li>
+    </ul>
+    <h2>Chrome 標準の操作が必要な場合</h2>
+    <p>
+      通常の Chrome タブでは ⌘W / Ctrl+W をブラウザーが優先し、Viewer ごと閉じる場合がある。
+      Viewer 内の × ボタン、右クリックメニュー、またはタブにフォーカスして Delete / Backspace を使える。
+      アプリモードでも、アドレスバー・開発者ツールなど Viewer 外にフォーカスがある場合は Chrome の操作になる。
+      「開く・検索」の表示中は、Viewer が受け取った閉じる・再読み込みのキーを実行しない。
+    </p>
+    <p>
+      サーバーを再起動した後など、Viewer 全体を読み込み直すには ⌘⇧R / Ctrl+Shift+R を使う。
+      Chrome のウィンドウを閉じる場合は OS の閉じるボタンを使う。ウィンドウを閉じても閲覧サーバーは止まらないため、起動したターミナルで Ctrl+C を押す。
+    </p>
+  </main>
+</body>
+</html>

@@ -115,6 +115,7 @@ test("absolute folder paths, recursive opt-in, extension case, and deduplication
 	assert.equal(direct.documents[0].id, recursive.documents[0].id);
 	const doc = await apiJson("read", { id: direct.documents[0].id });
 	assert.match(doc.html, /<h1>Hello<\/h1>/);
+	assert.equal(doc.relativePath, "日本語 space # %/a.md");
 });
 test("restored paths keep their original folder scope", async () => {
 	const { documents } = await apiJson("open", {
@@ -161,7 +162,12 @@ test("token, Origin, Fetch Metadata and Host protect local file APIs", async () 
 	);
 });
 test("asset routes never expose arbitrary local files", async () => {
-	for (const route of ["/files/secret.md", "/package.json"])
+	for (const route of [
+		"/files/secret.md",
+		"/package.json",
+		"/docs/usage.md",
+		"/public/shortcuts.html",
+	])
 		assert.equal((await fetch(base + route)).status, 404, route);
 	const response = await fetch(base);
 	assert.match(
@@ -171,7 +177,12 @@ test("asset routes never expose arbitrary local files", async () => {
 	assert.equal(response.headers.get("cache-control"), "no-store");
 });
 test("browser modules are served only at their registered asset routes", async () => {
-	for (const file of ["documents.js", "sidebar.js"]) {
+	for (const file of [
+		"documents.js",
+		"selection.js",
+		"sidebar.js",
+		"tabs.js",
+	]) {
 		const response = await fetch(`${base}/${file}`);
 		assert.equal(response.status, 200, file);
 		assert.equal(
@@ -182,6 +193,18 @@ test("browser modules are served only at their registered asset routes", async (
 		assert.equal((await fetch(`${base}/public/${file}`)).status, 404, file);
 	}
 });
+test("shortcut help is served without API tokens or the Viewer event handlers", async () => {
+	const response = await fetch(`${base}/shortcuts`);
+	assert.equal(response.status, 200);
+	assert.equal(
+		response.headers.get("content-type"),
+		"text/html; charset=utf-8",
+	);
+	const html = await response.text();
+	assert.match(html, /Viewer のショートカット/);
+	assert.doesNotMatch(html, /viewer-token|app\.js|<script[^>]*>[^<]+/);
+});
+
 test("relative Markdown links and images remain within the selected root", async () => {
 	const { documents } = await apiJson("open", { path: folder });
 	const id = documents[0].id;
