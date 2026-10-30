@@ -9,6 +9,7 @@ import {
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
+import { openChromeApp } from "../src/chrome.mjs";
 
 const projectDirectory = fileURLToPath(new URL("../", import.meta.url)).slice(
 	0,
@@ -17,7 +18,10 @@ const projectDirectory = fileURLToPath(new URL("../", import.meta.url)).slice(
 const statePath = fileURLToPath(
 	new URL("../.dev-processes.json", import.meta.url),
 );
-const args = process.argv.slice(2).filter((arg) => arg !== "--");
+const openBrowser = !process.argv.includes("--no-open");
+const args = process.argv
+	.slice(2)
+	.filter((arg) => arg !== "--" && arg !== "--no-open");
 const commandPatternByKind = {
 	supervisor: /(?:^|\/)node(?:\s|$).*\bscripts\/dev\.mjs(?:\s|$)/,
 	viewer: /(?:^|\/)node(?:\s|$).*--watch.*\bsrc\/index\.mjs(?:\s|$)/,
@@ -175,13 +179,14 @@ function signalChildGroup(child, signal = "SIGTERM") {
 
 if (args.includes("--help") || args.includes("-h")) {
 	console.log(
-		"Usage: pnpm dev [--recursive] [--allow-html] [file.md | directory ...]\n--allow-html renders raw HTML in trusted Markdown. Uses ports 8080 and 3100 when available; otherwise selects free ports. DEV_PORT and DEV_BACKEND_PORT override them.\nStarts Caddy and a watched reader on loopback without sudo. Ctrl+C stops both.",
+		"Usage: pnpm dev [--no-open] [--recursive] [--allow-html] [file.md | directory ...]\n--allow-html renders raw HTML in trusted Markdown. Uses ports 8080 and 3100 when available; otherwise selects free ports. DEV_PORT and DEV_BACKEND_PORT override them.\nStarts Caddy and a watched reader on loopback without sudo. Ctrl+C stops both. Opens Chrome in app mode once the proxy is ready. --no-open disables browser launch; CHROME_PATH overrides the executable.",
 	);
 } else {
 	const children = new Set();
 	const childKinds = new Map();
 	let stopping = false;
 	let startupTimer;
+	let browserOpened = false;
 	function writeState() {
 		const temporary = `${statePath}.${process.pid}.tmp`;
 		writeFileSync(
@@ -311,6 +316,7 @@ if (args.includes("--help") || args.includes("-h")) {
 				"--watch-path=src",
 				"--watch-path=public",
 				"src/index.mjs",
+				"--no-open",
 				...viewerArgs,
 			],
 			{
@@ -349,8 +355,16 @@ if (args.includes("--help") || args.includes("-h")) {
 				if (entry.msg === "serving initial configuration") {
 					clearTimeout(startupTimer);
 					console.log(
-						`Dev ready: ${origin}\nソース変更で再起動します。ブラウザーは再読み込みしてください。終了: Ctrl+C`,
+						`Dev ready: ${origin}\nソース変更で再起動します。画面全体の再読み込み: ⌘⇧R / Ctrl+Shift+R。終了: Ctrl+C`,
 					);
+					if (openBrowser && !browserOpened && !stopping) {
+						browserOpened = true;
+						void openChromeApp(origin).catch((error) =>
+							console.error(
+								`Chrome の自動起動に失敗しました。${error.message}\nURL: ${origin}`,
+							),
+						);
+					}
 				} else if (entry.level === "error" || entry.level === "fatal")
 					console.error(message);
 			});

@@ -1,12 +1,22 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
-import { test } from "node:test";
+import { join } from "node:path";
+import { after, before, test } from "node:test";
 import { requestWithExactHost } from "./helpers/http.mjs";
+import { createMockChrome, createTestProject } from "./helpers/project.mjs";
 
 const hasCaddy = spawnSync("caddy", ["version"]).status === 0;
 const devTestOptions = { skip: !hasCaddy, timeout: 20000 };
+let project;
+before(async () => {
+	if (hasCaddy) project = await createTestProject();
+});
+after(async () => {
+	if (project) await rm(project, { recursive: true, force: true });
+});
 
 async function reservePort(port = 0) {
 	return new Promise((resolve, reject) => {
@@ -38,14 +48,25 @@ async function selectTestPorts() {
 	return { proxyPort, backendPort };
 }
 
-function launchDev({ proxyPort, backendPort } = {}) {
+function launchDev({
+	proxyPort,
+	backendPort,
+	chromePath,
+	openBrowser = false,
+} = {}) {
 	const env = { ...process.env };
+	if (chromePath) env.CHROME_PATH = chromePath;
 	if (proxyPort !== undefined) env.DEV_PORT = String(proxyPort);
 	if (backendPort !== undefined) env.DEV_BACKEND_PORT = String(backendPort);
-	const child = spawn(process.execPath, ["scripts/dev.mjs"], {
-		env,
-		stdio: ["ignore", "pipe", "pipe"],
-	});
+	const child = spawn(
+		process.execPath,
+		["scripts/dev.mjs", ...(openBrowser ? [] : ["--no-open"])],
+		{
+			cwd: project,
+			env,
+			stdio: ["ignore", "pipe", "pipe"],
+		},
+	);
 	return { child, exited: once(child, "exit") };
 }
 
@@ -161,6 +182,87 @@ test(
 			if (!first.child.killed) await stopDev(first);
 			if (replacement) await stopDev(replacement);
 			await first.exited;
+		}
+		await assertPortsReleased(ports);
+	},
+);
+
+async function waitUntil(read, accept) {
+	const deadline = Date.now() + 8000;
+	while (Date.now() < deadline) {
+		const value = await read();
+		if (accept(value)) return value;
+		await new Promise((resolve) => setTimeout(resolve, 50));
+	}
+	assert.fail("Condition was not met before the deadline");
+}
+
+test(
+	"dev opens the public app URL once and does not reopen Chrome on watch restarts",
+	{
+		...devTestOptions,
+		skip: !hasCaddy || process.platform === "win32",
+	},
+	async () => {
+		const ports = await selectTestPorts();
+		const chrome = await createMockChrome(project);
+		const dev = launchDev({
+			...ports,
+			openBrowser: true,
+			chromePath: chrome.executable,
+		});
+		try {
+			await waitForDevReady(dev.child);
+			const log = await waitUntil(
+				() => readFile(chrome.log, "utf8").catch(() => ""),
+				(text) => text.endsWith("\n"),
+			);
+			assert.deepEqual(log.trim().split("\n").map(JSON.parse), [
+				[`--app=http://md.localhost:${ports.proxyPort}`],
+			]);
+			const html = await (await requestProxy(ports.proxyPort)).text();
+			const token = html.match(/name="viewer-token" content="([^"]+)"/)[1];
+			const theme = join(project, "public/theme.js");
+			await writeFile(
+				theme,
+				`${await readFile(theme, "utf8")}\n// Restart test\n`,
+			);
+			await waitUntil(
+				async () => {
+					try {
+						return await (await requestProxy(ports.proxyPort)).text();
+					} catch {
+						return "";
+					}
+				},
+				(text) => text.includes("viewer-token") && !text.includes(token),
+			);
+			assert.equal(await readFile(chrome.log, "utf8"), log);
+		} finally {
+			await stopDev(dev);
+		}
+		await assertPortsReleased(ports);
+	},
+);
+
+test(
+	"dev --no-open disables Chrome launch while still starting the proxy",
+	{
+		...devTestOptions,
+		skip: !hasCaddy || process.platform === "win32",
+	},
+	async () => {
+		const ports = await selectTestPorts();
+		const chrome = await createMockChrome(project);
+		await rm(chrome.log, { force: true });
+		const dev = launchDev({ ...ports, chromePath: chrome.executable });
+		try {
+			await waitForDevReady(dev.child);
+			assert.equal((await requestProxy(ports.proxyPort)).status, 200);
+			await new Promise((resolve) => setTimeout(resolve, 200));
+			await assert.rejects(readFile(chrome.log), { code: "ENOENT" });
+		} finally {
+			await stopDev(dev);
 		}
 		await assertPortsReleased(ports);
 	},

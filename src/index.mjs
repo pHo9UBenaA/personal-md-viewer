@@ -1,9 +1,10 @@
+import { openChromeApp } from "./chrome.mjs";
 import { createViewerServer } from "./server.mjs";
 
 const args = process.argv.slice(2).filter((arg) => arg !== "--");
 if (args.includes("--help") || args.includes("-h")) {
 	console.log(
-		"Usage: pnpm start [--recursive] [--allow-html] [content/file.md | content/directory ...]\n\nOnly content/ is accessible. Run pnpm copy-docs SOURCE_DIRECTORY first. Without paths, all copied Markdown is listed recursively.\n--allow-html renders raw HTML in trusted Markdown. PORT defaults to 3000; PORT=0 selects a free port.",
+		"Usage: pnpm start [--no-open] [--recursive] [--allow-html] [content/file.md | content/directory ...]\n\nOnly content/ is accessible. Run pnpm copy-docs SOURCE_DIRECTORY first. Without paths, all copied Markdown is listed recursively.\n--allow-html renders raw HTML in trusted Markdown. PORT defaults to 3000; PORT=0 selects a free port.\nOpens Chrome in app mode after startup. --no-open disables browser launch. CHROME_PATH overrides the Chrome executable.",
 	);
 } else {
 	try {
@@ -12,7 +13,7 @@ if (args.includes("--help") || args.includes("-h")) {
 			throw new Error("PORT は 0〜65535 の整数にしてください。");
 		const server = await createViewerServer({
 			initialPaths: args.filter(
-				(arg) => arg !== "--recursive" && arg !== "--allow-html",
+				(arg) => !["--recursive", "--allow-html", "--no-open"].includes(arg),
 			),
 			recursive: args.includes("--recursive"),
 			allowHtml: args.includes("--allow-html"),
@@ -26,11 +27,18 @@ if (args.includes("--help") || args.includes("-h")) {
 			);
 			process.exitCode = 1;
 		});
-		server.listen(port, "127.0.0.1", () =>
-			console.log(
-				`Markdown viewer: ${process.env.VIEWER_ORIGIN ?? `http://127.0.0.1:${server.address().port}`}`,
-			),
-		);
+		server.listen(port, "127.0.0.1", () => {
+			const url =
+				process.env.VIEWER_ORIGIN ||
+				`http://127.0.0.1:${server.address().port}`;
+			console.log(`Markdown viewer: ${url}`);
+			if (!args.includes("--no-open"))
+				void openChromeApp(url).catch((error) =>
+					console.error(
+						`Chrome の自動起動に失敗しました。${error.message}\nURL: ${url}`,
+					),
+				);
+		});
 	} catch (error) {
 		console.error(error.message);
 		process.exitCode = 1;
