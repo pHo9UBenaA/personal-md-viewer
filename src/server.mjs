@@ -1,4 +1,4 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createLibrary, MAX_FILE_BYTES, ViewerError } from "./library.mjs";
@@ -175,10 +175,23 @@ export async function createViewerServer({
 								.replace("__TOKEN__", token)
 								.replace("__SHOW_NOTICES__", String(!hideNotices))
 						: bytes;
-				return [route, { type, data }];
+				const version =
+					type === "font/woff2"
+						? createHash("sha256").update(bytes).digest("hex")
+						: null;
+				return [route, { type, data, version }];
 			}),
 		),
 	);
+
+	// Only immutable, content-versioned fonts may outlive this server instance.
+	const themeStyle = staticFiles.get("/theme.css");
+	themeStyle.data = themeStyle.data
+		.toString("utf8")
+		.replace(/url\("(\/fonts\/[^"?]+\.woff2)"\)/g, (_, path) => {
+			const { version } = staticFiles.get(path);
+			return `url("${path}?v=${version}")`;
+		});
 
 	const server = createServer(
 		{ maxHeaderSize: 8192, requestTimeout: 10000, headersTimeout: 10000 },
@@ -208,8 +221,14 @@ export async function createViewerServer({
 				validateRequestOrigin(request, allowedOrigin, server.address().port);
 				const url = new URL(request.url, `http://${request.headers.host}`);
 				const asset = staticFiles.get(url.pathname);
-				if (asset && (request.method === "GET" || request.method === "HEAD"))
+				if (asset && (request.method === "GET" || request.method === "HEAD")) {
+					if (asset.version && url.search === `?v=${asset.version}`)
+						response.setHeader(
+							"Cache-Control",
+							"private, max-age=31536000, immutable",
+						);
 					return send(200, asset.data, asset.type);
+				}
 				if (!url.pathname.startsWith("/api/"))
 					return send(404, { error: "見つかりません。" });
 				const suppliedTokenBytes = Buffer.from(

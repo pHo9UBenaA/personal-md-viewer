@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
 	mkdir,
 	mkdtemp,
@@ -336,6 +337,50 @@ test("bundled fonts retain their binary bytes and include licenses", async () =>
 		"Lilex-OFL.txt",
 	])
 		assert.equal((await fetch(`${base}/fonts/${name}`)).status, 404);
+});
+
+test("only content-versioned bundled fonts are browser-cacheable", async () => {
+	const stylesheet = await fetch(`${base}/theme.css`);
+	assert.equal(stylesheet.headers.get("cache-control"), "no-store");
+	const urls = [...(await stylesheet.text()).matchAll(/url\("([^"]+)"\)/g)].map(
+		(match) => match[1],
+	);
+	assert.equal(urls.length, 4);
+	for (const path of urls) {
+		const url = new URL(path, base);
+		const response = await fetch(url);
+		assert.equal(response.status, 200);
+		assert.equal(
+			response.headers.get("cache-control"),
+			"private, max-age=31536000, immutable",
+		);
+		const bytes = Buffer.from(await response.arrayBuffer());
+		assert.equal(
+			url.searchParams.get("v"),
+			createHash("sha256").update(bytes).digest("hex"),
+		);
+		const head = await fetch(url, { method: "HEAD" });
+		assert.equal(
+			head.headers.get("cache-control"),
+			response.headers.get("cache-control"),
+		);
+		assert.equal((await head.arrayBuffer()).byteLength, 0);
+		for (const query of ["", "?v=old", `${url.search}&extra=1`]) {
+			const uncached = await fetch(`${base}${url.pathname}${query}`);
+			assert.equal(uncached.headers.get("cache-control"), "no-store");
+		}
+	}
+	for (const path of [
+		"/",
+		"/reader.css",
+		"/theme.css",
+		"/fonts/BIZ-UD-OFL.txt",
+	])
+		assert.equal(
+			(await fetch(base + path)).headers.get("cache-control"),
+			"no-store",
+		);
+	assert.equal((await api("initial")).headers.get("cache-control"), "no-store");
 });
 
 test("relative Markdown links and images remain within the selected root", async () => {

@@ -1,5 +1,9 @@
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { expect } from "@playwright/test";
-import { openCopiedMarkdown, test } from "./helpers.mjs";
+import { createViewerServer } from "../../src/server.mjs";
+import { closeServer, listenOnLoopback } from "../helpers/http.mjs";
+import { openCopiedMarkdown, openCopiedPath, test } from "./helpers.mjs";
 
 test("self-hosted BIZ UD faces cover Japanese and Latin in regular and bold", async ({
 	page,
@@ -15,7 +19,7 @@ test("self-hosted BIZ UD faces cover Japanese and Latin in regular and bold", as
 			external.push(url.href);
 	});
 	page.on("response", (response) => {
-		if (response.ok() && response.url().endsWith(".woff2"))
+		if (response.ok() && new URL(response.url()).pathname.endsWith(".woff2"))
 			loadedFonts.add(new URL(response.url()).pathname);
 	});
 	await openCopiedMarkdown(page, viewer.directory, {
@@ -123,4 +127,46 @@ test("self-hosted BIZ UD faces cover Japanese and Latin in regular and bold", as
 		"-1",
 	);
 	expect(external).toEqual([]);
+});
+
+test("tab and mode switches reuse bundled fonts without fetching them again", async ({
+	page,
+	viewer,
+}) => {
+	const paths = ["cached-fonts-A.md", "cached-fonts-B.md"].map((name) =>
+		join(viewer.directory, name),
+	);
+	for (const path of paths)
+		await writeFile(
+			path,
+			"# 日本語 Bold\n\n本文 Latin\n\n`code` **`bold code`**",
+		);
+	const server = await createViewerServer({
+		contentDirectory: viewer.directory,
+	});
+	const fontRequests = [];
+	server.on("request", (request) => {
+		if (request.url.split("?")[0].endsWith(".woff2"))
+			fontRequests.push(request.url);
+	});
+	try {
+		await page.goto(await listenOnLoopback(server));
+		await openCopiedPath(page, paths[0]);
+		await expect(page.locator("#content")).toHaveCSS("visibility", "visible");
+		expect(fontRequests).toHaveLength(4);
+		expect(new Set(fontRequests).size).toBe(4);
+		await openCopiedPath(page, paths[1]);
+		await expect(page.locator("#content")).toHaveCSS("visibility", "visible");
+		await page
+			.getByRole("tab", { name: "cached-fonts-A.md", exact: true })
+			.click();
+		await expect(page.locator("#content")).toHaveCSS("visibility", "visible");
+		await page.getByRole("button", { name: "Raw", exact: true }).click();
+		await expect(page.locator("#content")).toHaveCSS("visibility", "visible");
+		await page.getByRole("button", { name: "Preview", exact: true }).click();
+		await expect(page.locator("#content")).toHaveCSS("visibility", "visible");
+		expect(fontRequests).toHaveLength(4);
+	} finally {
+		await closeServer(server);
+	}
 });

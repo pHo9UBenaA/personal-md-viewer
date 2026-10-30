@@ -144,6 +144,8 @@ export function initializeReader({
 			"sandbox",
 			"allow-same-origin allow-scripts allow-popups allow-popups-to-escape-sandbox",
 		);
+		// Keep layout active, but do not paint fallback fonts or the unrestored position.
+		frame.style.visibility = "hidden";
 		let content = doc.html;
 		if (sourceMode) {
 			const pre = document.createElement("pre");
@@ -181,6 +183,7 @@ export function initializeReader({
 			}
 			search.setDocument(readerDocument, key);
 			if (!hash) frame.contentWindow.scrollTo(scrollLeft, scrollTop);
+			frame.style.visibility = "visible";
 			if (pendingFocusRevision === revision) focus(revision);
 		};
 		// WebKit needs allow-scripts for parent-installed listeners; the document CSP forbids execution.
