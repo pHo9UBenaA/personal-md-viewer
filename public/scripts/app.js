@@ -490,6 +490,13 @@ async function reloadTab(key = active) {
 	});
 }
 
+function homeNotice() {
+	if (!showNotices) return "";
+	return availableDocuments.size
+		? "ファイル一覧から選択できます。"
+		: "pnpm copy-docs で content/ にコピーしてから開いてください。";
+}
+
 function showEmpty(message, { record = true } = {}) {
 	active = null;
 	readerSearch.dismiss();
@@ -540,10 +547,9 @@ async function restoreView(state) {
 			status(`履歴の一部を復元できませんでした。${restoreError}`, true);
 		return;
 	}
-	let message = "pnpm copy-docs で content/ にコピーしてから開いてください。";
-	if (missingPaths)
-		message = `履歴のパスを復元できませんでした。${restoreError}`;
-	else if (availableDocuments.size) message = "ファイル一覧から選択できます。";
+	const message = missingPaths
+		? `履歴のパスを復元できませんでした。${restoreError}`
+		: homeNotice();
 	showEmpty(message, { record: false });
 }
 
@@ -748,10 +754,5 @@ runExclusiveAction(async () => {
 	const data = await api("initial");
 	if (revision !== navigationRevision) return;
 	registerDocuments(data.documents);
-	showEmpty(
-		data.documents.length
-			? "ファイル一覧から選択できます。"
-			: "pnpm copy-docs で content/ にコピーしてから開いてください。",
-		{ record: false },
-	);
+	showEmpty(homeNotice(), { record: false });
 });

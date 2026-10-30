@@ -1,4 +1,4 @@
-import { unlink, writeFile } from "node:fs/promises";
+import { mkdtemp, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { createViewerServer } from "../../src/server.mjs";
@@ -93,7 +93,7 @@ test("errors reappear after dismissing notices, and can also be removed", async 
 });
 
 for (const allowHtml of [false, true]) {
-	test(`no-notices omits both notices but keeps errors, results and shortcut help (allowHtml=${allowHtml})`, async ({
+	test(`no-notices omits guidance but keeps errors, results and shortcut help (allowHtml=${allowHtml})`, async ({
 		page,
 		viewer,
 	}) => {
@@ -107,6 +107,9 @@ for (const allowHtml of [false, true]) {
 		});
 		try {
 			await page.goto(await listenOnLoopback(server));
+			await expect(page.locator("#count")).toHaveText("1");
+			await expect(page.locator("#empty")).toBeVisible();
+			await expect(page.locator("#shortcut-notice, #status")).toHaveCount(0);
 			await openCopiedPath(page, path);
 			await expect(
 				page
@@ -143,8 +146,34 @@ for (const allowHtml of [false, true]) {
 				.getByRole("button", { name: "通知を閉じる", exact: true })
 				.click();
 			await expect(page.locator("#status")).toHaveCount(0);
+			await page.reload();
+			await expect(page.getByRole("status")).toContainText(
+				"復元できませんでした",
+			);
 		} finally {
 			await closeServer(server);
 		}
 	});
 }
+
+test("no-notices hides the copy preparation notice when the copy directory is empty", async ({
+	page,
+	viewer,
+}) => {
+	const directory = await mkdtemp(join(viewer.directory, "quiet-empty-"));
+	const server = await createViewerServer({
+		contentDirectory: directory,
+		hideNotices: true,
+	});
+	try {
+		const initial = page.waitForResponse("**/api/initial");
+		await page.goto(await listenOnLoopback(server));
+		await initial;
+		await expect(page.locator("body")).not.toHaveAttribute("aria-busy", "true");
+		await expect(page.locator("#empty")).toBeVisible();
+		await expect(page.locator("#shortcut-notice, #status")).toHaveCount(0);
+		expect((await page.locator("#notices").boundingBox()).height).toBe(0);
+	} finally {
+		await closeServer(server);
+	}
+});
