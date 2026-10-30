@@ -41,7 +41,7 @@ pnpm dev --recursive content/notes
 
 パス引数のフォルダーは、既定では直下だけを探す。引数なしの場合は `--recursive` の有無にかかわらず再帰的に探す。相対 Markdown リンク・画像の許可範囲は、引数なしなら `content/` 全体、フォルダー指定ならその配下、単独ファイル指定なら親フォルダー配下となる。
 
-Caddy の起動が完了すると、`Dev ready:` に表示された URL（通常は `http://md.localhost:8080`）が Chrome のアプリウィンドウで開く。`--no-open` を指定した場合や Chrome を自動起動できなかった場合は、表示された URL を手動で開く。
+Caddy の起動が完了すると、`Dev ready:` に表示された URL（通常は `http://md.localhost:8080`）の閲覧ウィンドウが開く。macOS ではその URL 用にインストール済みの Viewer アプリを優先し、それ以外は Chrome アプリモードを使う。`--no-open` を指定した場合や自動起動に失敗した場合は、表示された URL を手動で開く。
 
 起動したターミナルで Ctrl+C を押すと、Caddy と閲覧サーバーの両方が終了するが、Chrome は終了しない。逆に、Chrome のウィンドウを閉じてもサーバーは止まらない。サーバーとプロキシはループバックアドレスだけで待ち受ける。`.localhost` を解決できない環境では、ローカル DNS または hosts ファイルの設定が必要となる。
 
@@ -51,7 +51,7 @@ Caddy の起動が完了すると、`Dev ready:` に表示された URL（通常
 
 ### 通常の Chrome と別アプリにする（macOS）
 
-`DEV_PORT=8080 pnpm dev` で URL を固定し、通常の Chrome で `http://md.localhost:8080` を開く。Chrome の「キャスト、保存、共有」→「ページをアプリとしてインストール」で Markdown Viewer を一度登録し、ウィンドウで開く設定を有効にする。通常のタブで開いてしまう場合は `chrome://apps` でウィンドウ表示に変更する。以後は同じ URL の起動時に専用アプリを開き、Dock と ⌘Tab で通常の Chrome と分けられる。サーバーとプロキシは引き続き必要で、ソース変更後はアプリ内でも ⌘⇧R で画面全体を再読み込みする。
+Dock と ⌘Tab で通常の Chrome と分けるには、初回に [Viewer アプリのインストール手順](usage.md#macos-で通常の-chrome-と分ける)を済ませる。開発時は `DEV_PORT=8080 pnpm dev` で URL を `http://md.localhost:8080` に固定して登録する。以後は同じ URL で起動すると専用アプリが開く。サーバーとプロキシは引き続き必要で、ソース変更後はアプリ内でも ⌘⇧R で画面全体を再読み込みする。
 
 アプリは `~/Applications/Chrome Apps.localized/` と `/Applications/Chrome Apps.localized/` から探す。URL はホスト名・ポートまで一致する必要があり、ポートの自動変更で別の URL になれば Chrome アプリモードに戻る。通常起動の `http://127.0.0.1:3000` は別の登録になる。登録を削除するには Chrome の `chrome://apps` からアンインストールする。
 
@@ -67,7 +67,9 @@ Caddy の起動が完了すると、`Dev ready:` に表示された URL（通常
 
 信頼できるファイルに限り、`pnpm dev --allow-html content/notes/trusted.md` で生 HTML を描画できる。既定では生 HTML を文字として表示し、HTML コメントは非表示にする。アプリが保存する固定形式のマーカーは、許可の有無にかかわらず描画する。
 
-`--allow-html` は、そのサーバーで開くすべての Markdown に適用する。コピー内でも信頼できるファイルだけを開く。スクリプト・フォーム・外部リソースの制限は維持するが、任意の HTML を安全に表示できることは保証しない。生 HTML のリンク・画像は、通常の Markdown リンク・画像と同じ処理を通らない。描画に関わる変更では両方のモードを確認する。
+`--allow-html` は、そのサーバーで開くすべての Markdown に適用する。コピー内でも信頼できるファイルだけを開く。スクリプト・フォーム・外部リソースの制限は維持するが、任意の HTML を安全に表示できることは保証しない。
+
+文書間の移動や画像表示には Markdown 記法を使う。生 HTML のリンク・画像は、通常の Markdown リンク・画像と同じ処理を通らない。生 HTML の相対リンクはアプリ内タブで開かず、`<img>` の相対パス画像も読み込まない。描画に関わる変更では両方のモードを確認する。
 
 ### 毎回同じパスを登録する
 
@@ -112,7 +114,7 @@ DEV_PORT=0 DEV_BACKEND_PORT=0 pnpm dev
 # 先に別のターミナルでプロキシを起動する
 caddy run --config ./Caddyfile
 
-# 閲覧サーバーは通常ユーザーで起動する。起動後に Chrome を開く
+# 閲覧サーバーは通常ユーザーで起動する。起動後に閲覧ウィンドウが開く
 VIEWER_ORIGIN=http://md.localhost pnpm start
 ```
 
@@ -179,7 +181,7 @@ pnpm audit
 
 配信する URL と物理的な配置は `src/server.mjs` の許可リストで対応付ける。配置を変えても公開 URL を不用意に変更せず、ディレクトリ全体を公開しない。`theme.js` は初期配色を適用するため、スタイルとアプリの初期化より前に読み込む。
 
-実行時の直接依存は markdown-it のみ。UI・Preview 用の BIZ UDPゴシックと Raw・コード用の BIZ UDゴシックは、通常・太字の WOFF2 を `public/fonts/` に SIL Open Font License 1.1 と一緒に同梱する。日本語と英数字は同じ書体で表示し、収録外の文字や絵文字だけ OS のフォントで補う。起動・テスト時のフォント変換は不要。フォント・SVG はローカル配信し、CDN や Zed の設定ファイルへの実行時アクセスは使わない。サーバーは Node.js 標準 HTTP、画面はブラウザー API で実装し、ビルドを不要にしている。HTTP のアクセス制御や DOM 操作は、このプロジェクトで保守する。
+実行時の直接依存は markdown-it のみ。UI・Preview 用の BIZ UDPゴシックと Raw・コード用の BIZ UDゴシックは、通常・太字の WOFF2 を `public/fonts/` に SIL Open Font License 1.1 と一緒に同梱する。日本語と英数字は同じ書体で表示し、収録外の文字や絵文字だけ OS のフォントで補う。起動・テスト時のフォント変換は不要。フォント・SVG はローカル配信し、CDN は使わない。サーバーは Node.js 標準 HTTP、画面はブラウザー API で実装し、ビルドを不要にしている。HTTP のアクセス制御や DOM 操作は、このプロジェクトで保守する。
 
 Markdown パーサーは自作せず、追加プラグインも使わない。依存関係を増やす場合は、必要な機能と保守負担を確認する。
 
