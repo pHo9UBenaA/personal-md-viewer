@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { findDocuments, treeFromDocuments } from "../public/documents.js";
+import {
+	documentKeysFromTree,
+	findDocuments,
+	treeFromDocuments,
+} from "../public/documents.js";
 
 const documents = new Map([
 	["first", { label: "notes/First.md", path: "/content/読書/First.md" }],
@@ -85,6 +89,24 @@ test("treeFromDocuments accepts Windows separators and preserves special filenam
 	assert.deepEqual(root.directories.get("nested").files, [
 		{ key: "document", doc, name: "日本語 # %.md" },
 	]);
+});
+
+test("documentKeysFromTree follows sorted folders then sorted files", () => {
+	const tree = treeFromDocuments([
+		["root-z", { root: "/content", label: "z.md" }],
+		["folder-z", { root: "/content", label: "z/c.md" }],
+		["folder-a-b", { root: "/content", label: "a/b.md" }],
+		["root-a", { root: "/content", label: "a.md" }],
+		["folder-a-a", { root: "/content", label: "a/a.md" }],
+	]);
+	assert.deepEqual(documentKeysFromTree(tree), [
+		"folder-a-a",
+		"folder-a-b",
+		"folder-z",
+		"root-a",
+		"root-z",
+	]);
+	assert.deepEqual(documentKeysFromTree(treeFromDocuments([])), []);
 });
 
 test("treeFromDocuments supports ungrouped files and falls back to the document name", () => {

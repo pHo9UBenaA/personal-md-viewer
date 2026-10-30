@@ -36,5 +36,27 @@ export function treeFromDocuments(documents) {
 			branch = getOrCreateDirectory(branch, part, part);
 		branch.files.push({ key, doc, name: parts.at(-1) ?? doc.name });
 	}
-	return root;
+	return sortTree(root);
+}
+
+function sortTree(branch) {
+	branch.directories = new Map(
+		[...branch.directories].sort(([, left], [, right]) =>
+			left.name.localeCompare(right.name),
+		),
+	);
+	branch.files.sort((left, right) => left.name.localeCompare(right.name));
+	for (const child of branch.directories.values()) sortTree(child);
+	return branch;
+}
+
+// Include files under collapsed folders, in the same order as the rendered tree.
+export function documentKeysFromTree(tree) {
+	const keys = [];
+	function visit(branch) {
+		for (const child of branch.directories.values()) visit(child);
+		for (const file of branch.files) keys.push(file.key);
+	}
+	visit(tree);
+	return keys;
 }

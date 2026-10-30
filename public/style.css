@@ -166,6 +166,36 @@ body.resizing-sidebar {
 	font-size: 11px;
 	background: none;
 }
+.filter-row {
+	display: flex;
+	gap: 6px;
+	align-items: center;
+}
+.filter-row input {
+	flex: 1;
+}
+.filter-row button {
+	padding: 9px 6px;
+	font-size: 11px;
+	white-space: nowrap;
+}
+.filter-row button:disabled {
+	cursor: default;
+}
+.filter-count {
+	display: block;
+	margin-top: 6px;
+	font-size: 11px;
+	color: var(--muted);
+}
+.filter-count[hidden] {
+	display: none;
+}
+.dialog-actions {
+	display: flex;
+	gap: 8px;
+	justify-content: flex-end;
+}
 #file-list {
 	margin-top: 12px;
 	margin-bottom: 30px;

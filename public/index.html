@@ -35,7 +35,12 @@
         <button id="close-all" type="button">すべて閉じる</button>
       </div>
       <label class="sr-only" for="filter">ファイルを絞り込む</label>
-      <input id="filter" type="search" placeholder="ファイルを絞り込む">
+      <div class="filter-row">
+        <input id="filter" type="search" placeholder="ファイルを絞り込む" aria-describedby="filter-count">
+        <button id="open-matches" type="button" title="検索結果をすべてタブで開く"
+          aria-describedby="filter-count" disabled>まとめて開く</button>
+      </div>
+      <span id="filter-count" class="filter-count" aria-live="polite" hidden></span>
       <div id="file-list" role="tree" aria-label="ファイルツリー"></div>
       <div class="sidebar-heading">このページの目次</div>
       <nav id="outline" aria-label="目次"></nav>
@@ -91,6 +96,15 @@
   </div>
 
   <div id="tab-menu" class="tab-menu" role="menu" aria-label="タブの操作" hidden></div>
+
+  <dialog id="open-matches-confirm" aria-labelledby="open-matches-title" aria-describedby="open-matches-message">
+    <h2 id="open-matches-title">検索結果をまとめて開く</h2>
+    <p id="open-matches-message"></p>
+    <div class="dialog-actions">
+      <button id="open-matches-cancel" type="button" autofocus>キャンセル</button>
+      <button id="open-matches-accept" type="button">開く</button>
+    </div>
+  </dialog>
 
   <dialog id="palette" aria-labelledby="palette-title">
     <div class="palette-heading">

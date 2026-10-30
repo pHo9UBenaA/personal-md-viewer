@@ -35,6 +35,12 @@ async function closeWithCommand(
 	page,
 	{ inReader = false, repeat = false } = {},
 ) {
+	// The parent makes the body focusable when the reader's listeners are installed.
+	if (inReader)
+		await expect(page.frameLocator("#content").locator("body")).toHaveAttribute(
+			"tabindex",
+			"-1",
+		);
 	return page.evaluate(
 		({ inReader, repeat }) => {
 			const target = inReader

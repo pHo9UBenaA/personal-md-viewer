@@ -1,4 +1,8 @@
-import { findDocuments, treeFromDocuments } from "./documents.js";
+import {
+	documentKeysFromTree,
+	findDocuments,
+	treeFromDocuments,
+} from "./documents.js";
 import { mapSourceText, sourceRangesForSelection } from "./selection.js";
 import { initializeSidebarResize } from "./sidebar.js";
 import { initializeTabs } from "./tabs.js";
@@ -31,6 +35,9 @@ let readerFocusRevision = null;
 const MAX_CACHED_TABS = 10;
 const MAX_PAGE_IMAGES = 100;
 const MAX_PALETTE_MATCHES = 20;
+const BULK_OPEN_CONFIRM_COUNT = 50;
+let filteredKeys = [];
+let pendingOpenKeys = null;
 
 const workspace = document.querySelector(".workspace");
 initializeSidebarResize({
@@ -173,10 +180,7 @@ function drawTreeBranch(
 	level = 1,
 	filtering = false,
 ) {
-	const directories = [...branch.directories.entries()].sort(
-		([, left], [, right]) => left.name.localeCompare(right.name),
-	);
-	for (const [id, child] of directories) {
+	for (const [id, child] of branch.directories) {
 		const folderPath = [...path, id];
 		const folderKey = JSON.stringify(folderPath);
 		const folderState = filtering ? filterCollapsedFolders : expandedFolders;
@@ -225,9 +229,7 @@ function drawTreeBranch(
 		folder.append(row, group);
 		parent.append(folder);
 	}
-	for (const { key, doc, name } of branch.files.sort((left, right) =>
-		left.name.localeCompare(right.name),
-	)) {
+	for (const { key, doc, name } of branch.files) {
 		const item = button(name, () => activate(key), "tree-file");
 		item.title = doc.path ?? doc.label;
 		item.setAttribute("role", "treeitem");
@@ -244,14 +246,12 @@ function drawNavigation() {
 	tabController.draw();
 	$("file-list").replaceChildren();
 	const query = $("filter").value.trim();
-	const visibleDocuments = findDocuments(availableDocuments, query);
-	drawTreeBranch(
-		treeFromDocuments(visibleDocuments),
-		$("file-list"),
-		[],
-		1,
-		Boolean(query),
-	);
+	const tree = treeFromDocuments(findDocuments(availableDocuments, query));
+	filteredKeys = query ? documentKeysFromTree(tree) : [];
+	$("open-matches").disabled = filteredKeys.length === 0;
+	$("filter-count").hidden = !query;
+	$("filter-count").textContent = `${filteredKeys.length} 件`;
+	drawTreeBranch(tree, $("file-list"), [], 1, Boolean(query));
 	$("empty").hidden = tabs.size > 0;
 	$("reader").hidden = tabs.size === 0;
 	if (active) {
@@ -261,6 +261,39 @@ function drawNavigation() {
 			.querySelector('[aria-selected="true"]')
 			?.scrollIntoView({ block: "nearest", inline: "nearest" });
 	}
+}
+
+function openMatchingTabs(keys) {
+	const additions = keys.filter(
+		(key) => availableDocuments.has(key) && !tabs.has(key),
+	);
+	if (!additions.length) {
+		status("検索結果はすべて開いています。");
+		return;
+	}
+	for (const key of additions) tabs.set(key, availableDocuments.get(key));
+	if (!active) {
+		void activate(additions[0]);
+		return;
+	}
+	// Adding background tabs must not recreate or scroll the current reader.
+	drawNavigation();
+	recordView();
+	status(`${additions.length} 件のタブを追加しました。`);
+}
+
+function openFilteredDocuments() {
+	if (!filteredKeys.length || $("open-matches-confirm").open) return;
+	const additions = filteredKeys.filter((key) => !tabs.has(key));
+	if (additions.length < BULK_OPEN_CONFIRM_COUNT) {
+		openMatchingTabs(additions);
+		return;
+	}
+	pendingOpenKeys = additions;
+	$("open-matches-message").textContent =
+		`${additions.length} 件のタブを追加する。本文は実際に表示したときに読み込む。`;
+	$("open-matches-confirm").showModal();
+	$("open-matches-cancel").focus();
 }
 
 function hideHighlightToolbar() {
@@ -932,6 +965,19 @@ $("palette-form").addEventListener("submit", (event) => {
 		activate(paletteMatches[paletteIndex][0]);
 	} else
 		runExclusiveAction(() => openPath(value, $("palette-recursive").checked));
+});
+$("open-matches").addEventListener("click", openFilteredDocuments);
+$("open-matches-cancel").addEventListener("click", () =>
+	$("open-matches-confirm").close(),
+);
+$("open-matches-accept").addEventListener("click", () => {
+	const keys = pendingOpenKeys ?? [];
+	pendingOpenKeys = null;
+	$("open-matches-confirm").close();
+	openMatchingTabs(keys);
+});
+$("open-matches-confirm").addEventListener("close", () => {
+	pendingOpenKeys = null;
 });
 $("filter").addEventListener("input", () => {
 	filterCollapsedFolders.clear();

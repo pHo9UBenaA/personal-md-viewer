@@ -29,7 +29,9 @@ export const test = baseTest.extend({
 export async function openCopiedPath(page, path) {
 	await page.locator("#palette-open").click();
 	await page.locator("#command").fill(path);
+	const opened = page.waitForResponse("**/api/open");
 	await page.locator("#command").press("Enter");
+	if ((await opened).ok()) await expect(page.locator("#palette")).toBeHidden();
 }
 
 export async function openCopiedMarkdown(page, directory, { name, source }) {
