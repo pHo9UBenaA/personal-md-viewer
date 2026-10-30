@@ -1,4 +1,4 @@
-import { openChromeApp } from "./chrome.mjs";
+import { openChromeApp } from "./runtime/chrome.mjs";
 import { createViewerServer } from "./server.mjs";
 
 const args = process.argv.slice(2).filter((arg) => arg !== "--");

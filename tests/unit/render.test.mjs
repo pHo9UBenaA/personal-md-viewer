@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { renderMarkdown } from "../src/render.mjs";
+import { renderMarkdown } from "../../src/render.mjs";
 
 test("renderMarkdown escapes active HTML, unsafe links and code info; images stay inert", () => {
 	const source = [

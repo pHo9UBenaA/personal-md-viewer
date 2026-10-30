@@ -9,7 +9,7 @@ import {
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
-import { openChromeApp } from "../src/chrome.mjs";
+import { openChromeApp } from "../src/runtime/chrome.mjs";
 
 const projectDirectory = fileURLToPath(new URL("../", import.meta.url)).slice(
 	0,

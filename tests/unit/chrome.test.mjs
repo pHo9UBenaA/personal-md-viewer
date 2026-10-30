@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { test } from "node:test";
-import { chromeCandidates, openChromeApp } from "../src/chrome.mjs";
+import { chromeCandidates, openChromeApp } from "../../src/runtime/chrome.mjs";
 
 test("Chrome discovery supports standard installations and an explicit override", () => {
 	assert.deepEqual(

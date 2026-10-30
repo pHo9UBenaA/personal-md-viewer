@@ -171,6 +171,12 @@ pnpm audit
 
 ## 構成と依存の方針
 
+- `public/scripts/` はブラウザー用 JavaScript、`public/styles/` は CSS。HTML とマニフェストは `public/` 直下、フォントとライセンスは `public/fonts/`、アイコンは `public/icons/` に置く。
+- `src/` は文書の読み書き・描画・HTTP、`src/runtime/` は OS やブラウザーの起動処理を担当する。
+- `tests/unit/` は単体テスト、`tests/integration/` はファイル・HTTP・プロセスを使う結合テスト、`tests/playwright/` はブラウザー E2E。共通のテスト支援は `tests/helpers/` に置く。
+
+配信する URL と物理的な配置は `src/server.mjs` の許可リストで対応付ける。配置を変えても公開 URL を不用意に変更せず、ディレクトリ全体を公開しない。`theme.js` は初期配色を適用するため、スタイルとアプリの初期化より前に読み込む。
+
 実行時の直接依存は markdown-it のみ。UI の IBM Plex Sans と Raw・コードの Lilex は `public/fonts/` にライセンスと一緒に同梱する。フォント・SVG はローカル配信し、CDN や Zed の設定ファイルへの実行時アクセスは使わない。サーバーは Node.js 標準 HTTP、画面はブラウザー API で実装し、ビルドを不要にしている。HTTP のアクセス制御や DOM 操作は、このプロジェクトで保守する。
 
 Markdown パーサーは自作せず、追加プラグインも使わない。依存関係を増やす場合は、必要な機能と保守負担を確認する。

@@ -4,7 +4,7 @@ import {
 	findInstalledViewerApp,
 	openInstalledViewerApp,
 	viewerWebAppId,
-} from "../src/web-app.mjs";
+} from "../../src/runtime/web-app.mjs";
 
 const url = "http://md.localhost:8080";
 const info = (overrides = {}) => ({

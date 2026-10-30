@@ -4,7 +4,7 @@ import {
 	documentKeysFromTree,
 	findDocuments,
 	treeFromDocuments,
-} from "../public/documents.js";
+} from "../../public/scripts/documents.js";
 
 const documents = new Map([
 	["first", { label: "notes/First.md", path: "/content/読書/First.md" }],

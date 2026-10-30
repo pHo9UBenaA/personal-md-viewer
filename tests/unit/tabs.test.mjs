@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { TabSelection } from "../public/tabs.js";
+import { TabSelection } from "../../public/scripts/tabs.js";
 
 const keys = ["a", "b", "c", "d"];
 

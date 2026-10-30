@@ -4,7 +4,7 @@ import { once } from "node:events";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
-import { createMockChrome, createTestProject } from "./helpers/project.mjs";
+import { createMockChrome, createTestProject } from "../helpers/project.mjs";
 
 let project;
 let chrome;

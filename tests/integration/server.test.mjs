@@ -13,13 +13,13 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
-import { MAX_FILE_BYTES, readBounded } from "../src/library.mjs";
-import { createViewerServer } from "../src/server.mjs";
+import { MAX_FILE_BYTES, readBounded } from "../../src/library.mjs";
+import { createViewerServer } from "../../src/server.mjs";
 import {
 	closeServer,
 	listenOnLoopback,
 	requestWithExactHost,
-} from "./helpers/http.mjs";
+} from "../helpers/http.mjs";
 
 let root;
 let folder;
@@ -300,7 +300,7 @@ test("bundled fonts retain their binary bytes and include licenses", async () =>
 		assert.equal(response.headers.get("content-type"), "font/ttf");
 		assert.deepEqual(
 			Buffer.from(await response.arrayBuffer()),
-			await readFile(new URL(`../public/fonts/${name}`, import.meta.url)),
+			await readFile(new URL(`../../public/fonts/${name}`, import.meta.url)),
 		);
 	}
 	for (const name of ["IBM-Plex-OFL.txt", "Lilex-OFL.txt"])

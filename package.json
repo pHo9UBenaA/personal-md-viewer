@@ -10,7 +10,7 @@
 		"start": "node src/index.mjs",
 		"copy-docs": "node scripts/copy-docs.mjs",
 		"dev": "node scripts/dev.mjs",
-		"test": "node --test tests/*.test.mjs",
+		"test": "node --test tests/unit/*.test.mjs tests/integration/*.test.mjs",
 		"test:e2e": "playwright test",
 		"check": "biome check .",
 		"fix:check": "biome check --write ."

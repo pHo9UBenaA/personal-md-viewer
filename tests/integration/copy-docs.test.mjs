@@ -15,10 +15,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { copyDocuments } from "../scripts/copy-docs.mjs";
-import { MAX_DIRECTORY_DEPTH, MAX_FILE_BYTES } from "../src/library.mjs";
-import { createViewerServer } from "../src/server.mjs";
-import { closeServer, listenOnLoopback } from "./helpers/http.mjs";
+import { copyDocuments } from "../../scripts/copy-docs.mjs";
+import { MAX_DIRECTORY_DEPTH, MAX_FILE_BYTES } from "../../src/library.mjs";
+import { createViewerServer } from "../../src/server.mjs";
+import { closeServer, listenOnLoopback } from "../helpers/http.mjs";
 
 async function createCopyFixture(t) {
 	const root = await realpath(await mkdtemp(join(tmpdir(), "viewer-copy-")));

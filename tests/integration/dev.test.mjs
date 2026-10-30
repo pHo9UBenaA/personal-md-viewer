@@ -5,8 +5,8 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
-import { requestWithExactHost } from "./helpers/http.mjs";
-import { createMockChrome, createTestProject } from "./helpers/project.mjs";
+import { requestWithExactHost } from "../helpers/http.mjs";
+import { createMockChrome, createTestProject } from "../helpers/project.mjs";
 
 const hasCaddy = spawnSync("caddy", ["version"]).status === 0;
 const devTestOptions = { skip: !hasCaddy, timeout: 20000 };
@@ -283,7 +283,7 @@ test(
 			]);
 			const html = await (await requestProxy(ports.proxyPort)).text();
 			const token = html.match(/name="viewer-token" content="([^"]+)"/)[1];
-			const theme = join(project, "public/theme.js");
+			const theme = join(project, "public/scripts/theme.js");
 			await writeFile(
 				theme,
 				`${await readFile(theme, "utf8")}\n// Restart test\n`,
