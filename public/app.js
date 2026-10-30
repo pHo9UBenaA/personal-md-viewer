@@ -1,4 +1,6 @@
+import { findDocuments, treeFromDocuments } from "./documents.js";
 import { mapSourceText, sourceRangesForSelection } from "./selection.js";
+import { initializeSidebarResize } from "./sidebar.js";
 
 const $ = (id) => document.getElementById(id);
 const token = document.querySelector('meta[name="viewer-token"]').content;
@@ -24,88 +26,14 @@ const collapsedFolders = new Set();
 const filterCollapsedFolders = new Set();
 const MAX_CACHED_TABS = 10;
 const MAX_PAGE_IMAGES = 100;
-const MIN_SIDEBAR_WIDTH_PX = 180;
-const MAX_SIDEBAR_WIDTH_PX = 600;
-const MOBILE_BREAKPOINT_PX = 760;
-// Leave room for the reader plus the six-pixel resize handle.
-const MIN_READER_AND_RESIZER_WIDTH_PX = 326;
+const MAX_PALETTE_MATCHES = 20;
 
 const workspace = document.querySelector(".workspace");
-function initializeSidebarResize() {
-	const resizer = $("sidebar-resizer");
-	let sidebarWidth = 250;
-	let resizeOffset = 0;
-	try {
-		const saved = Number(localStorage.getItem("viewer-sidebar-width"));
-		if (Number.isFinite(saved) && saved > 0) sidebarWidth = saved;
-	} catch {
-		/* Resizing still works without persistence. */
-	}
-	let preferredSidebarWidth = sidebarWidth;
-	function sidebarMaxWidth() {
-		return Math.max(
-			MIN_SIDEBAR_WIDTH_PX,
-			Math.min(
-				MAX_SIDEBAR_WIDTH_PX,
-				workspace.clientWidth - MIN_READER_AND_RESIZER_WIDTH_PX,
-			),
-		);
-	}
-	function setSidebarWidth(width, persist = false) {
-		if (!Number.isFinite(width)) return;
-		sidebarWidth = Math.round(
-			Math.max(MIN_SIDEBAR_WIDTH_PX, Math.min(sidebarMaxWidth(), width)),
-		);
-		workspace.style.setProperty("--sidebar-width", `${sidebarWidth}px`);
-		resizer.setAttribute("aria-valuemax", String(sidebarMaxWidth()));
-		resizer.setAttribute("aria-valuenow", String(sidebarWidth));
-		if (persist) {
-			preferredSidebarWidth = sidebarWidth;
-			try {
-				localStorage.setItem("viewer-sidebar-width", String(sidebarWidth));
-			} catch {
-				/* Resizing still works without persistence. */
-			}
-		}
-	}
-	setSidebarWidth(sidebarWidth);
-	window.addEventListener("resize", () => {
-		if (window.innerWidth > MOBILE_BREAKPOINT_PX)
-			setSidebarWidth(preferredSidebarWidth);
-	});
-	resizer.addEventListener("pointerdown", (event) => {
-		if (event.button !== 0) return;
-		resizeOffset = event.clientX - $("sidebar").getBoundingClientRect().right;
-		resizer.setPointerCapture(event.pointerId);
-		resizer.focus();
-		document.body.classList.add("resizing-sidebar");
-	});
-	resizer.addEventListener("pointermove", (event) => {
-		if (resizer.hasPointerCapture(event.pointerId))
-			setSidebarWidth(
-				event.clientX - workspace.getBoundingClientRect().left - resizeOffset,
-			);
-	});
-	function finishSidebarResize() {
-		document.body.classList.remove("resizing-sidebar");
-		setSidebarWidth(sidebarWidth, true);
-	}
-	resizer.addEventListener("pointerup", finishSidebarResize);
-	resizer.addEventListener("pointercancel", finishSidebarResize);
-	resizer.addEventListener("keydown", (event) => {
-		const widthsByKey = {
-			ArrowLeft: sidebarWidth - 20,
-			ArrowRight: sidebarWidth + 20,
-			Home: MIN_SIDEBAR_WIDTH_PX,
-			End: sidebarMaxWidth(),
-		};
-		const width = widthsByKey[event.key] ?? null;
-		if (width === null) return;
-		event.preventDefault();
-		setSidebarWidth(width, true);
-	});
-}
-initializeSidebarResize();
+initializeSidebarResize({
+	workspace,
+	sidebar: $("sidebar"),
+	resizer: $("sidebar-resizer"),
+});
 
 let theme = document.documentElement.dataset.theme;
 function applyTheme(value) {
@@ -148,7 +76,7 @@ async function api(route, body = {}, { asBlob = false } = {}) {
 		const data = await response.json().catch(() => ({}));
 		throw new Error(
 			data.error ||
-				"サーバーに接続できません。再起動後はページを再読み込みしてください。",
+				"リクエストに失敗しました。サーバーを再起動した場合は、このページを再読み込みしてください。",
 		);
 	}
 	return asBlob ? response.blob() : response.json();
@@ -218,35 +146,6 @@ function button(text, click, className) {
 	if (className) node.className = className;
 	node.addEventListener("click", click);
 	return node;
-}
-
-function treeFromDocuments(documents) {
-	const root = { directories: new Map(), files: [] };
-	for (const [key, doc] of documents) {
-		const parts = doc.label.split(/[\\/]/).filter(Boolean);
-		let branch = root;
-		if (doc.root) {
-			const rootKey = `root:${doc.root}`;
-			if (!branch.directories.has(rootKey))
-				branch.directories.set(rootKey, {
-					name: doc.root.split(/[\\/]/).filter(Boolean).at(-1) ?? doc.root,
-					directories: new Map(),
-					files: [],
-				});
-			branch = branch.directories.get(rootKey);
-		}
-		for (const part of parts.slice(0, -1)) {
-			if (!branch.directories.has(part))
-				branch.directories.set(part, {
-					name: part,
-					directories: new Map(),
-					files: [],
-				});
-			branch = branch.directories.get(part);
-		}
-		branch.files.push({ key, doc, name: parts.at(-1) ?? doc.name });
-	}
-	return root;
 }
 
 function drawTreeBranch(
@@ -344,11 +243,8 @@ function drawNavigation() {
 	workspace.dataset.hasDocuments = String(availableDocuments.size > 0);
 	drawOpenTabs();
 	$("file-list").replaceChildren();
-	const query = $("filter").value.trim().toLocaleLowerCase();
-	const visibleDocuments = [];
-	for (const [key, doc] of availableDocuments)
-		if (`${doc.label} ${doc.path ?? ""}`.toLocaleLowerCase().includes(query))
-			visibleDocuments.push([key, doc]);
+	const query = $("filter").value.trim();
+	const visibleDocuments = findDocuments(availableDocuments, query);
 	drawTreeBranch(
 		treeFromDocuments(visibleDocuments),
 		$("file-list"),
@@ -754,7 +650,7 @@ async function activate(key, { hash, record = true, scrollTop = 0 } = {}) {
 		);
 		if (revision === renderRevision)
 			status(
-				"コピーを閲覧中 · マーカーはコピーに保存 · 元ファイルは変更しません",
+				"コピーを閲覧中。マーカーはコピーに保存し、元ファイルは変更しない。",
 			);
 	} catch (error) {
 		if (revision === renderRevision) status(error.message, true);
@@ -765,14 +661,10 @@ let paletteIndex = 0;
 let paletteMatches = [];
 
 function updatePalette() {
-	const query = $("command").value.trim().toLocaleLowerCase();
-	paletteMatches = !query
-		? []
-		: [...availableDocuments.entries()]
-				.filter(([, doc]) =>
-					`${doc.label} ${doc.path ?? ""}`.toLocaleLowerCase().includes(query),
-				)
-				.slice(0, 20);
+	const query = $("command").value.trim();
+	paletteMatches = query
+		? findDocuments(availableDocuments, query, MAX_PALETTE_MATCHES)
+		: [];
 	paletteIndex = Math.min(paletteIndex, Math.max(0, paletteMatches.length - 1));
 	$("results").replaceChildren(
 		...paletteMatches.map(([key, doc], index) => {

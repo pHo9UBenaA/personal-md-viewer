@@ -431,6 +431,47 @@ test("palette keyboard search opens the matching document and ignores blank quer
 	).toBeVisible();
 });
 
+test("palette limits results while the tree filter keeps all matches", async ({
+	page,
+	viewer,
+}) => {
+	const directory = await mkdtemp(join(viewer.directory, "palette-limit-"));
+	try {
+		await Promise.all(
+			Array.from({ length: 25 }, (_, index) =>
+				writeFile(
+					join(directory, `entry-${String(index).padStart(2, "0")}.md`),
+					`# Entry ${index}`,
+				),
+			),
+		);
+		await page.goto("/");
+		await page.locator("#path").fill(directory);
+		await page.locator("#open-form button").click();
+		await expect(page.locator(".tree-file")).toHaveCount(25);
+		await page.locator("#filter").fill("  ENTRY-  ");
+		await expect(page.locator(".tree-file")).toHaveCount(25);
+		await page.getByRole("button", { name: /開く・検索/ }).click();
+		await page.locator("#command").fill("  ENTRY-  ");
+		await expect(page.locator("#results button")).toHaveCount(20);
+		await expect(page.locator("#results button").first()).toContainText(
+			"entry-00.md",
+		);
+		await expect(page.locator("#results button").last()).toContainText(
+			"entry-19.md",
+		);
+		await page.locator("#command").press("ArrowDown");
+		await page.locator("#command").press("Enter");
+		await expect(
+			page
+				.frameLocator("#content")
+				.getByRole("heading", { name: "Entry 1", exact: true }),
+		).toBeVisible();
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
 test("source view survives tab closing and closed documents remain in the tree", async ({
 	page,
 }) => {
@@ -467,7 +508,7 @@ test("source view survives tab closing and closed documents remain in the tree",
 		page.getByRole("treeitem", { name: "B.markdown" }),
 	).toBeVisible();
 	await expect(
-		page.getByRole("heading", { name: "コピーした文書を読む。" }),
+		page.getByRole("heading", { name: "コピーした文書", exact: true }),
 	).toBeVisible();
 });
 test("focus mode fills the viewport and can be toggled from the reader", async ({
@@ -756,6 +797,45 @@ test("sidebar width can be dragged, adjusted by keyboard, and restored", async (
 	await page.setViewportSize({ width: 1280, height: 820 });
 	await expect(resizer).toHaveAttribute("aria-valuenow", String(adjustedWidth));
 });
+test("sidebar width stays within bounds and recovers its preferred width after a narrow viewport", async ({
+	page,
+}) => {
+	await openFolder(page);
+	const resizer = page.getByRole("separator", { name: "サイドバーの幅" });
+	await resizer.focus();
+	await page.keyboard.press("Home");
+	await expect(resizer).toHaveAttribute("aria-valuenow", "180");
+	await page.keyboard.press("ArrowLeft");
+	await expect(resizer).toHaveAttribute("aria-valuenow", "180");
+	await page.keyboard.press("End");
+	await expect(resizer).toHaveAttribute("aria-valuenow", "600");
+	await page.keyboard.press("ArrowRight");
+	await expect(resizer).toHaveAttribute("aria-valuenow", "600");
+	await page.setViewportSize({ width: 800, height: 820 });
+	await expect(resizer).toHaveAttribute("aria-valuenow", "474");
+	await expect(resizer).toHaveAttribute("aria-valuemax", "474");
+	await page.setViewportSize({ width: 1280, height: 820 });
+	await expect(resizer).toHaveAttribute("aria-valuenow", "600");
+	await expect(resizer).toHaveAttribute("aria-valuemax", "600");
+});
+
+test("sidebar resizing works when browser storage is unavailable", async ({
+	page,
+}) => {
+	await page.addInitScript(() => {
+		for (const method of ["getItem", "setItem"])
+			Storage.prototype[method] = () => {
+				throw new DOMException("Storage blocked", "SecurityError");
+			};
+	});
+	await openFolder(page);
+	const resizer = page.getByRole("separator", { name: "サイドバーの幅" });
+	await expect(resizer).toHaveAttribute("aria-valuenow", "250");
+	await resizer.focus();
+	await page.keyboard.press("ArrowRight");
+	await expect(resizer).toHaveAttribute("aria-valuenow", "270");
+});
+
 test("file pickers are absent and outside paths are rejected in both forms", async ({
 	page,
 }) => {

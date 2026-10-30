@@ -170,6 +170,18 @@ test("asset routes never expose arbitrary local files", async () => {
 	);
 	assert.equal(response.headers.get("cache-control"), "no-store");
 });
+test("browser modules are served only at their registered asset routes", async () => {
+	for (const file of ["documents.js", "sidebar.js"]) {
+		const response = await fetch(`${base}/${file}`);
+		assert.equal(response.status, 200, file);
+		assert.equal(
+			response.headers.get("content-type"),
+			"text/javascript; charset=utf-8",
+			file,
+		);
+		assert.equal((await fetch(`${base}/public/${file}`)).status, 404, file);
+	}
+});
 test("relative Markdown links and images remain within the selected root", async () => {
 	const { documents } = await apiJson("open", { path: folder });
 	const id = documents[0].id;
