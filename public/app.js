@@ -54,8 +54,10 @@ function applyTheme(value) {
 	document.documentElement.dataset.theme = theme;
 	const reader = $("content").contentDocument;
 	if (reader?.documentElement) reader.documentElement.dataset.theme = theme;
-	$("theme-toggle").setAttribute("aria-pressed", String(theme === "dark"));
-	$("theme-toggle").textContent = theme === "dark" ? "ライトへ" : "ダークへ";
+	const action =
+		theme === "dark" ? "ライトモードに切り替える" : "ダークモードに切り替える";
+	$("theme-toggle").setAttribute("aria-label", action);
+	$("theme-toggle").title = action;
 }
 applyTheme(theme);
 $("theme-toggle").addEventListener("click", () => {
@@ -694,8 +696,6 @@ async function activate(
 	drawNavigation();
 	$("document-path").textContent = doc.path;
 	$("document-path").title = doc.path;
-	$("separate-tab").hidden = false;
-	$("separate-tab").href = `/#document=${encodeURIComponent(doc.id)}`;
 	$("reload").title = "コピーから読み直す";
 	document.title = `${doc.name} — Markdown Viewer`;
 	status("読み込み中…");
@@ -843,10 +843,6 @@ $("palette-form").addEventListener("submit", (event) => {
 	} else
 		runExclusiveAction(() => openPath(value, $("palette-recursive").checked));
 });
-$("open-form").addEventListener("submit", (event) => {
-	event.preventDefault();
-	runExclusiveAction(() => openPath($("path").value, $("recursive").checked));
-});
 $("filter").addEventListener("input", () => {
 	filterCollapsedFolders.clear();
 	drawNavigation();
@@ -902,8 +898,7 @@ $("reload").addEventListener("click", () =>
 );
 $("source-toggle").addEventListener("click", () => {
 	showSource = !showSource;
-	$("source-toggle").setAttribute("aria-pressed", String(showSource));
-	$("source-toggle").textContent = showSource ? "プレビュー" : "ソース";
+	$("source-toggle").textContent = showSource ? "Preview" : "Raw";
 	if (active) activate(active, { preserveTabSelection: true });
 });
 document.addEventListener("pointerdown", (event) => {

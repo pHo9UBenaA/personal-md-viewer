@@ -205,6 +205,19 @@ test("shortcut help is served without API tokens or the Viewer event handlers", 
 	assert.doesNotMatch(html, /viewer-token|app\.js|<script[^>]*>[^<]+/);
 });
 
+test("only the fixed UI icons are served as SVG", async () => {
+	for (const icon of ["sun", "moon"]) {
+		const response = await fetch(`${base}/icons/${icon}.svg`);
+		assert.equal(response.status, 200);
+		assert.equal(response.headers.get("content-type"), "image/svg+xml");
+		const svg = await response.text();
+		assert.match(svg, /^<svg /);
+		assert.doesNotMatch(svg, /script|href=|onload=/i);
+	}
+	for (const route of ["/icons/arbitrary.svg", "/public/icons/sun.svg"])
+		assert.equal((await fetch(base + route)).status, 404);
+});
+
 test("relative Markdown links and images remain within the selected root", async () => {
 	const { documents } = await apiJson("open", { path: folder });
 	const id = documents[0].id;

@@ -85,7 +85,21 @@ kbd {
 	background: var(--action);
 }
 .theme-action {
-	min-width: 68px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 36px;
+	height: 36px;
+	padding: 8px;
+}
+.theme-icon {
+	width: 20px;
+	height: 20px;
+	background: currentColor;
+	mask: url("/icons/moon.svg") center / contain no-repeat;
+}
+:root[data-theme="dark"] .theme-icon {
+	mask-image: url("/icons/sun.svg");
 }
 .shortcut-notice {
 	padding: 4px 20px;

@@ -14,10 +14,12 @@
     <a class="brand" href="/">Markdown <span>Viewer</span></a>
     <div class="toolbar-actions">
       <button id="palette-open" class="search-action" type="button">
-        開く・検索 <kbd>⌘⇧P</kbd>
+        コマンドパレット <kbd>⌘⇧P</kbd>
       </button>
       <button id="theme-toggle" class="theme-action" type="button"
-        aria-label="ダークモード" aria-pressed="false">ダーク</button>
+        aria-label="ダークモードに切り替える" title="ダークモードに切り替える">
+        <span class="theme-icon" aria-hidden="true"></span>
+      </button>
     </div>
   </header>
 
@@ -51,17 +53,7 @@
           content/ にコピーした Markdown だけを開ける。<br>
           マーカーはコピーに保存し、元ファイルは変更しない。
         </p>
-        <form id="open-form">
-          <label class="sr-only" for="path">ファイル・フォルダーのパス</label>
-          <div class="path-row">
-            <input id="path" type="text" placeholder="content/notes"
-              spellcheck="false" autocomplete="off" required>
-            <button type="submit">開く</button>
-          </div>
-          <label class="check">
-            <input id="recursive" type="checkbox" checked>サブフォルダーも含める
-          </label>
-        </form>
+        <p>⌘⇧P / Ctrl+Shift+P、または上部の「コマンドパレット」から文書を開く。</p>
         <p class="hint">
           ターミナルで <code>pnpm copy-docs "コピー元フォルダー"</code> を実行してコピーを作成する。<br>
           コピー後は content/ を開く。サーバー再起動後は ⌘⇧R / Ctrl+Shift+R でこのページも再読み込みする。
@@ -71,9 +63,8 @@
       <section id="reader" hidden>
         <div class="document-bar">
           <span id="document-path"></span>
-          <a id="separate-tab" target="_blank" rel="noopener noreferrer" hidden>別タブで開く</a>
           <button id="reload" type="button">再読み込み</button>
-          <button id="source-toggle" type="button" aria-pressed="false">ソース</button>
+          <button id="source-toggle" type="button">Raw</button>
           <button id="focus-toggle" type="button" aria-pressed="false"
             title="全画面表示 (⌘⇧F / Ctrl+Shift+F)">全画面表示</button>
         </div>
@@ -103,14 +94,14 @@
 
   <dialog id="palette" aria-labelledby="palette-title">
     <div class="palette-heading">
-      <h2 id="palette-title">開く・検索</h2>
+      <h2 id="palette-title">コマンドパレット</h2>
       <button id="palette-close" type="button" aria-label="閉じる">Esc</button>
     </div>
     <form id="palette-form">
       <label for="command">content/ 内のパス、または登録済みのファイル名</label>
       <div class="path-row">
         <input id="command" type="text" autocomplete="off" spellcheck="false"
-          placeholder="パスを入力 / ファイルを検索">
+          placeholder="ファイル名で検索 / コピー内のパスを入力">
         <button type="submit">開く</button>
       </div>
       <label class="check">

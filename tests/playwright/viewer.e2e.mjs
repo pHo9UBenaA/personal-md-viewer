@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { expect } from "@playwright/test";
 import { createViewerServer } from "../../src/server.mjs";
 import { closeServer, listenOnLoopback } from "../helpers/http.mjs";
-import { openCopiedMarkdown, test } from "./helpers.mjs";
+import { openCopiedMarkdown, openCopiedPath, test } from "./helpers.mjs";
 
 let folder;
 test("trusted HTML opens details without executing scripts", async ({
@@ -69,8 +69,7 @@ test("copied folders load documents lazily and reject a drop onto the reader", a
 	page.on("request", (request) => {
 		if (request.url().endsWith("/api/read")) reads++;
 	});
-	await page.locator("#path").fill(many);
-	await page.locator("#open-form button").click();
+	await openCopiedPath(page, many);
 	await expect(page.getByRole("tab")).toHaveCount(1);
 	await expect(page.locator(".tree-file")).toHaveCount(201);
 	await page.locator("#file-list > .tree-folder > .tree-folder-row").click();
@@ -118,11 +117,12 @@ test("theme persists and syncs the reader and browser tabs", async ({
 }) => {
 	await page.emulateMedia({ colorScheme: "light" });
 	await openFolder(page);
-	const toggle = page.getByRole("button", {
-		name: "ダークモード",
-		exact: true,
-	});
-	await expect(toggle).toHaveAttribute("aria-pressed", "false");
+	const toggle = page.locator("#theme-toggle");
+	await expect(toggle).toHaveAccessibleName("ダークモードに切り替える");
+	await expect(toggle.locator(".theme-icon")).toHaveCSS(
+		"mask-image",
+		/moon\.svg/,
+	);
 	await expect(page.frameLocator("#content").locator("html")).toHaveCSS(
 		"color-scheme",
 		"light",
@@ -142,17 +142,22 @@ test("theme persists and syncs the reader and browser tabs", async ({
 		"color-scheme",
 		"dark",
 	);
-	const popupPromise = page.waitForEvent("popup");
-	await page.getByRole("link", { name: "別タブで開く" }).click();
-	const popup = await popupPromise;
+	await expect(page.locator("#separate-tab")).toHaveCount(0);
+	const popup = await page.context().newPage();
+	await popup.goto(page.url());
+	await openCopiedPath(popup, join(folder, "nested/B.markdown"));
 	await expect(
 		popup
 			.frameLocator("#content")
 			.getByRole("heading", { name: "Second document" }),
 	).toBeVisible();
-	await expect(
-		popup.getByRole("button", { name: "ダークモード", exact: true }),
-	).toHaveAttribute("aria-pressed", "true");
+	await expect(popup.locator("#theme-toggle")).toHaveAccessibleName(
+		"ライトモードに切り替える",
+	);
+	await expect(toggle.locator(".theme-icon")).toHaveCSS(
+		"mask-image",
+		/sun\.svg/,
+	);
 	await toggle.click();
 	await expect(popup.frameLocator("#content").locator("html")).toHaveCSS(
 		"color-scheme",
@@ -161,11 +166,11 @@ test("theme persists and syncs the reader and browser tabs", async ({
 	await popup.close();
 	await page.emulateMedia({ colorScheme: "dark" });
 	await page.reload();
-	await expect(toggle).toHaveAttribute("aria-pressed", "false");
+	await expect(toggle).toHaveAccessibleName("ダークモードに切り替える");
 	await page.setViewportSize({ width: 390, height: 844 });
 	await expect(toggle).toBeVisible();
 	await toggle.click();
-	await expect(toggle).toHaveAttribute("aria-pressed", "true");
+	await expect(toggle).toHaveAccessibleName("ライトモードに切り替える");
 });
 test("highlights can be added, recolored, and removed without leaving focus mode", async ({
 	page,
@@ -284,15 +289,9 @@ test.afterAll(async () => {
 async function openFolder(page) {
 	await page.goto("/");
 	await expect(page.getByRole("status")).toContainText("pnpm copy-docs");
-	await expect(page.locator("#recursive")).toBeChecked();
+	await expect(page.locator("#open-form")).toHaveCount(0);
 	await expect(page.locator("#palette-recursive")).toBeChecked();
-	await page
-		.getByLabel("ファイル・フォルダーのパス", { exact: true })
-		.fill(folder);
-	await page
-		.locator("#open-form")
-		.getByRole("button", { name: "開く", exact: true })
-		.click();
+	await openCopiedPath(page, folder);
 	await expect(page.getByRole("tab")).toHaveCount(1);
 	const rootFolder = page.locator("#file-list > .tree-folder");
 	await expect(rootFolder).toHaveAttribute("aria-expanded", "false");
@@ -454,12 +453,11 @@ test("palette limits results while the tree filter keeps all matches", async ({
 			),
 		);
 		await page.goto("/");
-		await page.locator("#path").fill(directory);
-		await page.locator("#open-form button").click();
+		await openCopiedPath(page, directory);
 		await expect(page.locator(".tree-file")).toHaveCount(25);
 		await page.locator("#filter").fill("  ENTRY-  ");
 		await expect(page.locator(".tree-file")).toHaveCount(25);
-		await page.getByRole("button", { name: /開く・検索/ }).click();
+		await page.getByRole("button", { name: /コマンドパレット/ }).click();
 		await page.locator("#command").fill("  ENTRY-  ");
 		await expect(page.locator("#results button")).toHaveCount(20);
 		await expect(page.locator("#results button").first()).toContainText(
@@ -490,7 +488,10 @@ test("source view survives tab closing and closed documents remain in the tree",
 			.frameLocator("#content")
 			.getByRole("heading", { name: "Second document" }),
 	).toBeVisible();
-	await page.getByRole("button", { name: "ソース", exact: true }).click();
+	await page.getByRole("button", { name: "Raw", exact: true }).click();
+	await expect(
+		page.getByRole("button", { name: "Preview", exact: true }),
+	).toBeVisible();
 	await expect(page.frameLocator("#content").locator("pre")).toContainText(
 		"# Second document",
 	);
@@ -587,7 +588,7 @@ test("back and forward restore copied files and open tabs during the session", a
 	await expect(page.getByRole("tab")).toHaveCount(2);
 	const third = join(folder, "C.md");
 	await writeFile(third, "# Third document");
-	await page.getByRole("button", { name: /開く・検索/ }).click();
+	await page.getByRole("button", { name: /コマンドパレット/ }).click();
 	await page.locator("#command").fill(third);
 	await page.locator("#command").press("Enter");
 	await expect(page.getByRole("tab")).toHaveCount(3);
@@ -846,17 +847,13 @@ test("sidebar resizing works when browser storage is unavailable", async ({
 	await expect(resizer).toHaveAttribute("aria-valuenow", "270");
 });
 
-test("file pickers are absent and outside paths are rejected in both forms", async ({
+test("homepage inputs are absent and the command palette rejects outside paths", async ({
 	page,
 }) => {
 	await page.goto("/");
 	await expect(page.locator('input[type="file"]')).toHaveCount(0);
-	await page.locator("#path").fill("/outside/not-copied.md");
-	await page.locator("#open-form button").click();
-	await expect(page.getByRole("status")).toContainText(
-		"コピーしたファイルだけ",
-	);
-	await page.getByRole("button", { name: /開く・検索/ }).click();
+	await expect(page.locator("#empty input")).toHaveCount(0);
+	await page.getByRole("button", { name: /コマンドパレット/ }).click();
 	await page.locator("#command").fill("/outside/not-copied.md");
 	await page.locator("#command").press("Enter");
 	await expect(page.getByRole("status")).toContainText(
@@ -877,12 +874,12 @@ test("palette includes subfolders by default and the checkbox can opt out", asyn
 	page,
 }) => {
 	await page.goto("/");
-	await page.getByRole("button", { name: /開く・検索/ }).click();
+	await page.getByRole("button", { name: /コマンドパレット/ }).click();
 	await expect(page.locator("#palette-recursive")).toBeChecked();
 	await page.locator("#command").fill(folder);
 	await page.locator("#command").press("Enter");
 	await expect(page.getByRole("tab")).toHaveCount(1);
-	await page.getByRole("button", { name: /開く・検索/ }).click();
+	await page.getByRole("button", { name: /コマンドパレット/ }).click();
 	await page.locator("#palette-recursive").uncheck();
 	const request = page.waitForRequest("**/api/open");
 	await page.locator("#command").fill(folder);
@@ -895,11 +892,10 @@ test("missing paths are recoverable and mobile opening remains usable", async ({
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.goto("/");
 	await expect(page.getByRole("status")).toContainText("pnpm copy-docs");
-	await page.locator("#path").fill(join(folder, "missing.md"));
-	await page.locator("#open-form button").click();
+	await openCopiedPath(page, join(folder, "missing.md"));
 	await expect(page.getByRole("status")).toContainText("見つかりません");
-	await page.locator("#path").fill(join(folder, "A # %.md"));
-	await page.locator("#open-form button").click();
+	await page.locator("#command").fill(join(folder, "A # %.md"));
+	await page.locator("#command").press("Enter");
 	await expect(
 		page
 			.frameLocator("#content")

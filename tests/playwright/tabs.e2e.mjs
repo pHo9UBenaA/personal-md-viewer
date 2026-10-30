@@ -1,15 +1,14 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { expect } from "@playwright/test";
-import { test } from "./helpers.mjs";
+import { openCopiedPath, test } from "./helpers.mjs";
 
 async function openTabs(page, viewer) {
 	const directory = await mkdtemp(join(viewer.directory, "tabs-"));
 	for (const name of ["A", "B", "C", "D"])
 		await writeFile(join(directory, `${name}.md`), `# Document ${name}`);
 	await page.goto("/");
-	await page.locator("#path").fill(directory);
-	await page.locator("#open-form button").click();
+	await openCopiedPath(page, directory);
 	await expect(page.getByRole("tab")).toHaveCount(1);
 	await expect(page.locator("#file-list > .tree-folder")).toHaveAttribute(
 		"aria-expanded",
@@ -297,7 +296,7 @@ test("reader shortcuts reload only the active tab and focus search outside editi
 	await page.locator("#filter").fill("A");
 	await page.keyboard.press("/");
 	await expect(page.locator("#filter")).toHaveValue("A/");
-	await page.getByRole("button", { name: /開く・検索/ }).click();
+	await page.getByRole("button", { name: /コマンドパレット/ }).click();
 	await page.locator("#command").press("/");
 	await expect(page.locator("#command")).toHaveValue("/");
 	await closeWithCommand(page);
@@ -318,7 +317,7 @@ test("reader shortcuts reload only the active tab and focus search outside editi
 				),
 		);
 	expect(consumed).toBe(false);
-	await page.getByRole("button", { name: "ソース", exact: true }).click();
+	await page.getByRole("button", { name: "Raw", exact: true }).click();
 	await page.frameLocator("#content").locator("pre").press("/");
 	await expect(page.locator("#filter")).toBeFocused();
 });
@@ -327,7 +326,7 @@ test("shortcut details open a separate browser tab with no shortcut interception
 	page,
 }) => {
 	await page.goto("/");
-	await expect(page.locator('label[for="path"]')).toHaveClass("sr-only");
+	await expect(page.locator("#empty input")).toHaveCount(0);
 	const popupPromise = page.waitForEvent("popup");
 	await page.getByRole("link", { name: "ショートカットの詳細" }).click();
 	const popup = await popupPromise;

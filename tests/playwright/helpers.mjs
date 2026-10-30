@@ -26,12 +26,17 @@ export const test = baseTest.extend({
 	baseURL: async ({ viewer }, use) => use(viewer.url),
 });
 
+export async function openCopiedPath(page, path) {
+	await page.locator("#palette-open").click();
+	await page.locator("#command").fill(path);
+	await page.locator("#command").press("Enter");
+}
+
 export async function openCopiedMarkdown(page, directory, { name, source }) {
 	const path = join(directory, name);
 	await writeFile(path, source);
 	await page.goto("/");
-	await page.locator("#path").fill(path);
-	await page.locator("#open-form button").click();
+	await openCopiedPath(page, path);
 	await expect(page.getByRole("tab", { name, exact: true })).toBeVisible();
 	return path;
 }

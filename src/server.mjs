@@ -16,9 +16,11 @@ const assets = new Map([
 	["/theme.css", ["theme.css", "text/css; charset=utf-8"]],
 	["/style.css", ["style.css", "text/css; charset=utf-8"]],
 	["/reader.css", ["reader.css", "text/css; charset=utf-8"]],
+	["/icons/sun.svg", ["icons/sun.svg", "image/svg+xml"]],
+	["/icons/moon.svg", ["icons/moon.svg", "image/svg+xml"]],
 ]);
 const contentSecurityPolicy =
-	"default-src 'none'; script-src 'self'; style-src 'self'; img-src blob:; connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+	"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; frame-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 const withoutHighlights = (html) =>
 	html
