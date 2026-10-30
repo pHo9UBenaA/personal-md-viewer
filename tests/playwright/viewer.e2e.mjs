@@ -519,6 +519,15 @@ test("source view survives tab closing and closed documents remain in the tree",
 	await expect(
 		page.getByRole("heading", { name: "コピーした文書", exact: true }),
 	).toBeVisible();
+	await expect(page.locator("#empty")).toContainText(
+		"マーカーはコピーに保存し、元ファイルは変更しません。",
+	);
+	await expect(page.locator("#empty")).toContainText(
+		"コピー後は「コマンドパレット」に content/ を入力して開いてください。",
+	);
+	await expect(page.locator("#empty")).toContainText(
+		"サーバーを再起動した後は、⌘⇧R / Ctrl+Shift+R でこのページも再読み込みしてください。",
+	);
 });
 test("focus mode fills the viewport and can be toggled from the reader", async ({
 	page,

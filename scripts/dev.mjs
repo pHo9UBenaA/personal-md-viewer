@@ -148,7 +148,7 @@ async function loadViewerArgs() {
 			typeof config.hideNotices !== "boolean")
 	)
 		throw new Error(
-			"dev.local.json は paths (文字列配列) と任意の recursive / allowHtml / hideNotices (真偽値) を指定してください。",
+			"dev.local.json の paths には文字列の配列を指定してください。recursive / allowHtml / hideNotices は省略できますが、指定する場合は真偽値にしてください。",
 		);
 	return [
 		...(config.recursive && !args.includes("--recursive")
@@ -292,7 +292,7 @@ if (args.includes("--help") || args.includes("-h")) {
 				requestedPort === requestedBackend)
 		)
 			throw new Error(
-				"DEV_PORT と DEV_BACKEND_PORT は異なる 0〜65535 の整数にしてください。0 は空きポートを選びます。",
+				"DEV_PORT と DEV_BACKEND_PORT には 0〜65535 の整数を指定し、固定ポートは異なる番号にしてください。0 を指定すると空きポートを選びます。",
 			);
 		const port = await selectDevPort(configuredPort, requestedPort);
 		const backend = await selectDevPort(

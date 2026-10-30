@@ -112,7 +112,10 @@ export async function readBounded(path, root, maxBytes = MAX_FILE_BYTES) {
 			totalBytesRead += bytesRead;
 		}
 		if (totalBytesRead > maxBytes)
-			throw new ViewerError("読み取り中にファイルの上限を超えました。", 413);
+			throw new ViewerError(
+				"読み取り中にファイルサイズが上限を超えました。",
+				413,
+			);
 		return buffer.subarray(0, totalBytesRead);
 	} finally {
 		await handle.close();
@@ -224,7 +227,7 @@ export async function createLibrary({ directory = COPIED_DIRECTORY } = {}) {
 		await walk(path, 0);
 		if (!found.length && !allowEmpty)
 			throw new ViewerError(
-				"Markdown がありません。必要なら「サブフォルダーも含める」を選択してください。",
+				"Markdown が見つかりません。サブフォルダー内も探す場合は「サブフォルダーも含める」を選択してください。",
 			);
 		const unique = [...new Set(found)].sort((a, b) => a.localeCompare(b));
 		return unique.map((file) => register(file, path));

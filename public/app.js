@@ -132,7 +132,7 @@ if (showNotices) {
 	link.rel = "noopener noreferrer";
 	link.textContent = "ショートカットの詳細";
 	content.append(
-		"ブラウザー標準のショートカットの一部を Viewer の操作に変更している。 ",
+		"一部のショートカットは、ブラウザーの標準操作ではなく Viewer 内の操作に使います。 ",
 		link,
 	);
 	const notice = createNotice(
@@ -155,7 +155,7 @@ function status(message, error = false, onDismiss) {
 function showCopyNotice() {
 	status(
 		showNotices && !copyNoticeDismissed
-			? "コピーを閲覧中（マーカーはコピーに保存し、元ファイルは変更しない）。"
+			? "コピーを閲覧中です。マーカーはコピーに保存し、元ファイルは変更しません。"
 			: "",
 		false,
 		() => {
@@ -365,7 +365,7 @@ function openFilteredDocuments() {
 	}
 	pendingOpenKeys = additions;
 	$("open-matches-message").textContent =
-		`${additions.length} 件のタブを追加する。本文は実際に表示したときに読み込む。`;
+		`${additions.length} 件のタブを追加します。本文は、そのタブを表示したときに読み込みます。`;
 	$("open-matches-confirm").showModal();
 	$("open-matches-cancel").focus();
 }

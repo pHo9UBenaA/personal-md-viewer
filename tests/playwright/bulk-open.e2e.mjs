@@ -148,8 +148,8 @@ for (const count of [50, 51]) {
 		await page.locator("#open-matches").click();
 		if (count === 51) {
 			await expect(page.locator("#open-matches-confirm")).toBeVisible();
-			await expect(page.locator("#open-matches-message")).toContainText(
-				"50 件",
+			await expect(page.locator("#open-matches-message")).toHaveText(
+				"50 件のタブを追加します。本文は、そのタブを表示したときに読み込みます。",
 			);
 			await expect(page.locator("#open-matches-cancel")).toBeFocused();
 			await page.keyboard.press("Control+Tab");

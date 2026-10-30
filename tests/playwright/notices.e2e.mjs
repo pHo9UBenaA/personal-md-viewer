@@ -15,7 +15,14 @@ for (const width of [320, 1280]) {
 			name: `notices-${width}.md`,
 			source: "# Notices\n\nText.",
 		});
-		await expect(page.locator("#status")).toContainText("コピーを閲覧中");
+		await expect(
+			page.locator("#shortcut-notice .notice-message"),
+		).toContainText(
+			"一部のショートカットは、ブラウザーの標準操作ではなく Viewer 内の操作に使います。",
+		);
+		await expect(page.locator("#status .notice-message")).toHaveText(
+			"コピーを閲覧中です。マーカーはコピーに保存し、元ファイルは変更しません。",
+		);
 		const before = await page.locator(".workspace").boundingBox();
 		await page
 			.getByRole("button", { name: "ショートカットの案内を閉じる" })

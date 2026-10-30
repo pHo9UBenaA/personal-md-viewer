@@ -33,7 +33,7 @@ function validateCopyName(name) {
 		Buffer.byteLength(name) > 255
 	)
 		throw new ViewerError(
-			"コピー名には . で始まらず、前後に空白のない単一のフォルダー名を指定してください。除外名も使えません。",
+			"コピー名には UTF-8 で 255 バイト以内のフォルダー名を指定してください。先頭の .、前後の空白、パスの区切り文字、除外名は使えません。",
 		);
 }
 
@@ -121,7 +121,7 @@ if (
 		try {
 			if (args.length < 1 || args.length > 2)
 				throw new ViewerError(
-					"pnpm copy-docs コピー元フォルダー [コピー名] を指定してください。",
+					"pnpm copy-docs コピー元フォルダー [コピー名] の形式で実行してください。",
 				);
 			const result = await copyDocuments(args[0], { name: args[1] });
 			console.log(
