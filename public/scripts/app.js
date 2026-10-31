@@ -6,7 +6,7 @@ import { initializeReader } from "./reader.js";
 import { initializeReaderSearch } from "./reader-search.js";
 import { createShortcutHandler } from "./shortcuts.js";
 import { initializeSidebarResize } from "./sidebar.js";
-import { initializeTabs } from "./tabs.js";
+import { activeTabAfterClosing, initializeTabs } from "./tabs.js";
 import { initializeTree } from "./tree.js";
 
 const token = document.querySelector('meta[name="viewer-token"]').content;
@@ -378,7 +378,6 @@ function closeTabs(closingKeys) {
 	const closing = new Set(closingKeys.filter((key) => tabs.has(key)));
 	if (!closing.size) return;
 	const focusWasInTabs = byId("tabs").contains(document.activeElement);
-	const index = keys.indexOf(active);
 	const closedDocuments = [];
 	for (const [index, key] of keys.entries()) {
 		if (!closing.has(key)) continue;
@@ -400,12 +399,7 @@ function closeTabs(closingKeys) {
 		return;
 	}
 	if (closing.has(active)) {
-		const next =
-			keys.slice(index + 1).find((key) => tabs.has(key)) ??
-			keys
-				.slice(0, index)
-				.reverse()
-				.find((key) => tabs.has(key));
+		const next = activeTabAfterClosing(keys, active, closing);
 		void activate(next, { preserveTabSelection: true });
 	} else {
 		drawNavigation();

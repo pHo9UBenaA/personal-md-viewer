@@ -27,6 +27,21 @@ export function retainTabSelection(selection, orderedKeys, active) {
 	};
 }
 
+export function activeTabAfterClosing(orderedKeys, activeKey, closingKeys) {
+	if (!closingKeys.has(activeKey)) return activeKey;
+	const activeIndex = orderedKeys.indexOf(activeKey);
+	const nextRight = orderedKeys
+		.slice(activeIndex + 1)
+		.find((key) => !closingKeys.has(key));
+	if (nextRight !== undefined) return nextRight;
+	return (
+		orderedKeys
+			.slice(0, activeIndex)
+			.toReversed()
+			.find((key) => !closingKeys.has(key)) ?? null
+	);
+}
+
 export function initializeTabs({
 	element,
 	menu,

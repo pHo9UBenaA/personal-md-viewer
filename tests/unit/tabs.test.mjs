@@ -1,12 +1,68 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+	activeTabAfterClosing,
 	createTabSelection,
 	retainTabSelection,
 	selectTabRange,
 } from "../../public/scripts/tabs.js";
 
 const keys = Object.freeze(["a", "b", "c", "d"]);
+
+for (const { name, active, closing, expected } of [
+	{
+		name: "closing background tabs keeps the active tab",
+		active: "b",
+		closing: ["a", "c"],
+		expected: "b",
+	},
+	{
+		name: "closing the active tab prefers the next right tab over the left",
+		active: "b",
+		closing: ["b"],
+		expected: "c",
+	},
+	{
+		name: "closing a range skips closed tabs to the right",
+		active: "b",
+		closing: ["b", "c"],
+		expected: "d",
+	},
+	{
+		name: "closing a suffix falls back to the nearest remaining left tab",
+		active: "d",
+		closing: ["c", "d"],
+		expected: "b",
+	},
+	{
+		name: "closing a range skips closed neighbors on both sides",
+		active: "c",
+		closing: ["b", "c", "d"],
+		expected: "a",
+	},
+	{
+		name: "closing all tabs leaves no active tab",
+		active: "c",
+		closing: ["a", "b", "c", "d"],
+		expected: null,
+	},
+]) {
+	test(name, () => {
+		const closingKeys = new Set(closing);
+		assert.equal(activeTabAfterClosing(keys, active, closingKeys), expected);
+		assert.deepEqual([...closingKeys], closing);
+		assert.deepEqual(keys, ["a", "b", "c", "d"]);
+	});
+}
+
+test("the active tab after closing follows the reordered tabs", () => {
+	const reordered = Object.freeze(["d", "c", "b", "a"]);
+	assert.equal(activeTabAfterClosing(reordered, "c", new Set(["c"])), "b");
+});
+
+test("closing the only tab leaves no active tab", () => {
+	assert.equal(activeTabAfterClosing(["a"], "a", new Set(["a"])), null);
+});
 
 test("createTabSelection creates independent empty selections", () => {
 	const selection = createTabSelection();
